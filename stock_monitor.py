@@ -1,6 +1,6 @@
-import time
+
 import requests
-import schedule
+
 import yfinance as yf
 ##TICKERS = ["AAPL", "AMAT", "IBIT", "INTC", "NVO", "EWY", "RGTI", "TD", "SEDG", "TEVA", "PEP", "IAU", "VOO", "NVDA"]
 
@@ -130,10 +130,5 @@ def weekly_report():
     print("Weekly report sent.")
 
 
-schedule.every().sunday.at("18:00").do(weekly_report)
 
-print("Scheduler started...")
 
-while True:
-    schedule.run_pending()
-    time.sleep(30)
