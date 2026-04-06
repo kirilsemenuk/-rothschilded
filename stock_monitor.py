@@ -115,12 +115,20 @@ def build_portfolio_summary() -> str:
 
 
 def send_telegram_message(text: str):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    bot_token = os.environ["8402510483:AAFXomjkwHKYLYbvjHm1E4MTD0nVjI6OxJE"]
+    chat_id = os.environ["750575430"]
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
-        "chat_id": CHAT_ID,
+        "chat_id": chat_id,
         "text": text,
     }
+
     response = requests.post(url, json=payload, timeout=30)
+
+    print("Status code:", response.status_code)
+    print("Response body:", response.text)
+
     response.raise_for_status()
 
 
