@@ -9,13 +9,26 @@ import json
 with open("portfolio.json", "r") as f:
     PORTFOLIO = json.load(f)
 
+with open("config.json", "r") as f:
+    CONFIG = json.load(f)
+
+ALERT_THRESHOLD = CONFIG["alert_threshold"]
+GROQ_MODEL = CONFIG["groq_model"]
+TOP_MOVERS_LIMIT = CONFIG["top_movers_limit"]
+MESSAGE_TITLE = CONFIG["message_title"]
+USE_AI_SUMMARY = CONFIG["use_ai_summary"]
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
-ALERT_THRESHOLD = 3.0
-GROQ_MODEL = "llama-3.3-70b-versatile"
+
+if USE_AI_SUMMARY:
+    ai_summary = generate_ai_summary(raw_summary)
+else:
+    ai_summary = None
+
 
 
 def get_price_data(ticker: str) -> dict[str, Any] | None:
@@ -102,7 +115,9 @@ def build_portfolio_data() -> dict[str, Any]:
     total_pnl_pct = (total_pnl / total_cost) * 100 if total_cost else 0.0
 
     valid_positions = [p for p in positions if p["move_pct"] is not None]
-    top_movers = sorted(valid_positions, key=lambda p: abs(p["move_pct"]), reverse=True)[:3]
+    top_movers = sorted(
+        valid_positions,
+        key=lambda p: abs(p["move_pct"]), reverse=True)[:TOP_MOVERS_LIMIT]
 
     alerts = [f'{p["ticker"]}: {p["alert"]} ({p["move_pct"]:+.2f}%)'
               for p in valid_positions if p["alert"]]
@@ -200,7 +215,7 @@ def build_final_message(data: dict[str, Any], ai_summary: str | None) -> str:
         lines.append(ai_summary)
         lines.append("")
 
-    lines.append("Portfolio Snapshot")
+    lines.append(MESSAGE_TITLE)
     lines.append(f'Value: ${data["total_value"]:.2f}')
     lines.append(f'Total P/L: ${data["total_pnl"]:+.2f} ({data["total_pnl_pct"]:+.2f}%)')
     lines.append("")
