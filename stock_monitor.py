@@ -16,7 +16,6 @@ PORTFOLIO = [
     {"ticker": "SEDG", "shares": 2, "avg_price": 95},
     {"ticker": "TEVA", "shares": 5, "avg_price": 180},
     {"ticker": "PEP", "shares": 9, "avg_price": 410},
-    {"ticker": "PEP", "shares": 2.011, "avg_price": 95},
     {"ticker": "IAU", "shares": 5.2641, "avg_price": 180},
     {"ticker": "VOO", "shares": 3.8485, "avg_price": 410},
     {"ticker": "NVDA", "shares": 1, "avg_price": 95},
