@@ -7,7 +7,7 @@ import yfinance as yf
 import json
 
 with open("portfolio.json", "r") as f:
-    portfolio = json.load(f)
+    PORTFOLIO = json.load(f)
 
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
