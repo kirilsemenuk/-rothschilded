@@ -1,8 +1,10 @@
-
-import requests
 import os
+import requests
 import yfinance as yf
-##TICKERS = ["AAPL", "AMAT", "IBIT", "INTC", "NVO", "EWY", "RGTI", "TD", "SEDG", "TEVA", "PEP", "IAU", "VOO", "NVDA"]
+
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 PORTFOLIO = [
     {"ticker": "AAPL", "shares": 1, "avg_price": 180},
@@ -21,16 +23,12 @@ PORTFOLIO = [
     {"ticker": "NVDA", "shares": 1, "avg_price": 95},
 ]
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-
 ALERT_THRESHOLD = 3.0
 
 
 def get_price_data(ticker: str):
     stock = yf.Ticker(ticker)
-    hist = stock.history(period="2d")
+    hist = stock.history(period="5d")
 
     if len(hist) < 2:
         return None
@@ -41,7 +39,6 @@ def get_price_data(ticker: str):
 
     return {
         "ticker": ticker,
-        "prev_close": float(prev_close),
         "last_close": float(last_close),
         "change_pct": float(change_pct),
     }
@@ -56,7 +53,7 @@ def get_alert(change_pct: float) -> str:
 
 
 def build_portfolio_summary() -> str:
-    lines = ["Weekly portfolio summary", ""]
+    lines = []
     total_cost = 0.0
     total_value = 0.0
     alerts = []
@@ -84,14 +81,12 @@ def build_portfolio_summary() -> str:
 
         alert = get_alert(change_pct)
         line = (
-            f"{ticker}: {shares} shares | "
-            f"Price ${last_price:.2f} | "
-            f"Day {change_pct:+.2f}% | "
-            f"P/L ${pnl:+.2f} ({pnl_pct:+.2f}%)"
+            f"{ticker}: shares={shares}, price=${last_price:.2f}, "
+            f"move={change_pct:+.2f}%, pnl=${pnl:+.2f} ({pnl_pct:+.2f}%)"
         )
 
         if alert:
-            line += f" | {alert}"
+            line += f", alert={alert}"
             alerts.append(f"{ticker}: {alert} ({change_pct:+.2f}%)")
 
         lines.append(line)
@@ -99,40 +94,73 @@ def build_portfolio_summary() -> str:
     total_pnl = total_value - total_cost
     total_pnl_pct = (total_pnl / total_cost) * 100 if total_cost else 0.0
 
-    lines.append("")
-    lines.append("Total portfolio")
-    lines.append(f"Cost basis: ${total_cost:.2f}")
-    lines.append(f"Market value: ${total_value:.2f}")
-    lines.append(f"Total P/L: ${total_pnl:+.2f} ({total_pnl_pct:+.2f}%)")
+    footer = [
+        "",
+        f"Total market value: ${total_value:.2f}",
+        f"Total P/L: ${total_pnl:+.2f} ({total_pnl_pct:+.2f}%)",
+        "",
+        "Alerts:",
+    ]
 
-    lines.append("")
-    lines.append("Alerts")
     if alerts:
-        lines.extend(f"- {alert}" for alert in alerts)
+        footer.extend(alerts)
     else:
-        lines.append("- No alerts this week")
+        footer.append("No alerts")
 
-    return "\n".join(lines)
+    return "\n".join(lines + footer)
+
+
+def generate_ai_summary(summary_text: str) -> str:
+    prompt = f"""
+You are a portfolio assistant.
+
+Write a short weekly summary in plain English.
+Keep it concise: 4-6 lines.
+Focus on the biggest movers, overall portfolio direction, and anything notable.
+Do not give financial advice.
+Do not invent reasons not present in the data.
+
+Portfolio data:
+{summary_text}
+""".strip()
+
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "gpt-4.1-mini",
+            "messages": [
+                {"role": "system", "content": "You write concise portfolio summaries."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.3,
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"].strip()
 
 
 def send_telegram_message(text: str):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": text,
-    }
-    response = requests.post(url, json=payload, timeout=30)
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        json={"chat_id": CHAT_ID, "text": text},
+        timeout=30,
+    )
     response.raise_for_status()
 
 
 def weekly_report():
-    summary = build_portfolio_summary()
-    send_telegram_message(summary)
-    print("Weekly report sent.")
+    raw_summary = build_portfolio_summary()
+    ai_summary = generate_ai_summary(raw_summary)
+
+    final_message = f"{ai_summary}\n\nRaw data:\n{raw_summary}"
+    send_telegram_message(final_message)
+
 
 if __name__ == "__main__":
     weekly_report()
-
-
-
-
