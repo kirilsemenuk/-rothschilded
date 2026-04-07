@@ -1,10 +1,11 @@
 import os
+import time
 import requests
 import yfinance as yf
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 PORTFOLIO = [
     {"ticker": "AAPL", "shares": 1, "avg_price": 180},
@@ -124,25 +125,33 @@ Portfolio data:
 {summary_text}
 """.strip()
 
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "gpt-4.1-mini",
-            "messages": [
-                {"role": "system", "content": "You write concise portfolio summaries."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.3,
-        },
-        timeout=60,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"].strip()
+    for attempt in range(3):
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": "You write concise portfolio summaries."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.3,
+            },
+            timeout=60,
+        )
+
+        if response.status_code == 429 and attempt < 2:
+            time.sleep(2 ** attempt)
+            continue
+
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"].strip()
+
+    raise RuntimeError("Groq summary failed after retries")
 
 
 def send_telegram_message(text: str):
@@ -156,9 +165,13 @@ def send_telegram_message(text: str):
 
 def weekly_report():
     raw_summary = build_portfolio_summary()
-    ai_summary = generate_ai_summary(raw_summary)
 
-    final_message = f"{ai_summary}\n\nRaw data:\n{raw_summary}"
+    try:
+        ai_summary = generate_ai_summary(raw_summary)
+        final_message = f"{ai_summary}\n\nRaw data:\n{raw_summary}"
+    except Exception as e:
+        final_message = f"Portfolio summary\n\n{raw_summary}\n\nAI summary unavailable: {e}"
+
     send_telegram_message(final_message)
 
 
