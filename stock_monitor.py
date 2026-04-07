@@ -1,6 +1,6 @@
 
 import requests
-
+import os
 import yfinance as yf
 ##TICKERS = ["AAPL", "AMAT", "IBIT", "INTC", "NVO", "EWY", "RGTI", "TD", "SEDG", "TEVA", "PEP", "IAU", "VOO", "NVDA"]
 
@@ -22,8 +22,8 @@ PORTFOLIO = [
     {"ticker": "NVDA", "shares": 1, "avg_price": 95},
 ]
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
 ALERT_THRESHOLD = 3.0
 
 
