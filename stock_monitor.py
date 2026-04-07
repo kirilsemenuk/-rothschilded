@@ -129,6 +129,9 @@ def weekly_report():
     send_telegram_message(summary)
     print("Weekly report sent.")
 
+if __name__ == "__main__":
+    weekly_report()
+
 
 
 
