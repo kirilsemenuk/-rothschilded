@@ -1,10 +1,11 @@
 import os
+import json
 import time
 from typing import Any
 
 import requests
 import yfinance as yf
-import json
+
 
 with open("portfolio.json", "r") as f:
     PORTFOLIO = json.load(f)
@@ -12,20 +13,16 @@ with open("portfolio.json", "r") as f:
 with open("config.json", "r") as f:
     CONFIG = json.load(f)
 
+
 ALERT_THRESHOLD = CONFIG["alert_threshold"]
 GROQ_MODEL = CONFIG["groq_model"]
 TOP_MOVERS_LIMIT = CONFIG["top_movers_limit"]
 MESSAGE_TITLE = CONFIG["message_title"]
 USE_AI_SUMMARY = CONFIG["use_ai_summary"]
 
-
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-
-
-
-
 
 
 def get_price_data(ticker: str) -> dict[str, Any] | None:
@@ -43,7 +40,7 @@ def get_price_data(ticker: str) -> dict[str, Any] | None:
         "ticker": ticker,
         "prev_close": prev_close,
         "last_close": last_close,
-        "move_pct": float(move_pct),
+        "move_pct": move_pct,
     }
 
 
@@ -66,6 +63,7 @@ def build_portfolio_data() -> dict[str, Any]:
         avg_price = float(position["avg_price"])
 
         market_data = get_price_data(ticker)
+
         if not market_data:
             positions.append(
                 {
@@ -112,12 +110,18 @@ def build_portfolio_data() -> dict[str, Any]:
     total_pnl_pct = (total_pnl / total_cost) * 100 if total_cost else 0.0
 
     valid_positions = [p for p in positions if p["move_pct"] is not None]
+
     top_movers = sorted(
         valid_positions,
-        key=lambda p: abs(p["move_pct"]), reverse=True)[:TOP_MOVERS_LIMIT]
+        key=lambda p: abs(p["move_pct"]),
+        reverse=True
+    )[:TOP_MOVERS_LIMIT]
 
-    alerts = [f'{p["ticker"]}: {p["alert"]} ({p["move_pct"]:+.2f}%)'
-              for p in valid_positions if p["alert"]]
+    alerts = [
+        f'{p["ticker"]}: {p["alert"]} ({p["move_pct"]:+.2f}%)'
+        for p in valid_positions
+        if p["alert"]
+    ]
 
     return {
         "positions": positions,
@@ -131,9 +135,6 @@ def build_portfolio_data() -> dict[str, Any]:
 
 
 def build_raw_summary(data: dict[str, Any]) -> str:
-    top_movers = data["top_movers"]
-    alerts = data["alerts"]
-
     lines = [
         f'Portfolio value: ${data["total_value"]:.2f}',
         f'Total P/L: ${data["total_pnl"]:+.2f} ({data["total_pnl_pct"]:+.2f}%)',
@@ -141,16 +142,17 @@ def build_raw_summary(data: dict[str, Any]) -> str:
         "Top movers:",
     ]
 
-    if top_movers:
-        for mover in top_movers:
+    if data["top_movers"]:
+        for mover in data["top_movers"]:
             lines.append(f'- {mover["ticker"]}: {mover["move_pct"]:+.2f}%')
     else:
         lines.append("- No movers available")
 
     lines.append("")
     lines.append("Alerts:")
-    if alerts:
-        lines.extend(f"- {alert}" for alert in alerts)
+
+    if data["alerts"]:
+        lines.extend(f"- {alert}" for alert in data["alerts"])
     else:
         lines.append("- No alerts")
 
@@ -186,8 +188,14 @@ Portfolio data:
             json={
                 "model": GROQ_MODEL,
                 "messages": [
-                    {"role": "system", "content": "You write concise portfolio summaries."},
-                    {"role": "user", "content": prompt},
+                    {
+                        "role": "system",
+                        "content": "You write concise portfolio summaries."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    },
                 ],
                 "temperature": 0.3,
             },
@@ -250,10 +258,14 @@ def weekly_report() -> None:
     data = build_portfolio_data()
     raw_summary = build_raw_summary(data)
 
+    ai_summary = None
+
     if USE_AI_SUMMARY:
-        ai_summary = generate_ai_summary(raw_summary)
-    else:
-        ai_summary = None
+        try:
+            ai_summary = generate_ai_summary(raw_summary)
+        except Exception as exc:
+            print(f"AI summary failed: {exc}")
+
     final_message = build_final_message(data, ai_summary)
     send_telegram_message(final_message)
     print("Portfolio report sent.")
