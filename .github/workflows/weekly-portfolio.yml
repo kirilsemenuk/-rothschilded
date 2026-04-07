@@ -2,7 +2,7 @@ name: Weekly Portfolio Report
 
 on:
   schedule:
-    - cron: "55 0 * * 2"
+    - cron: "0 12 * * 2"
   workflow_dispatch:
 
 jobs:
