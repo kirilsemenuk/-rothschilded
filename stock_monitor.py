@@ -4,23 +4,11 @@ from typing import Any
 
 import requests
 import yfinance as yf
+import json
 
-PORTFOLIO = [
-    {"ticker": "AAPL", "shares": 1, "avg_price": 180},
-    {"ticker": "AMAT", "shares": 1, "avg_price": 410},
-    {"ticker": "IBIT", "shares": 2, "avg_price": 95},
-    {"ticker": "INTC", "shares": 0.5168, "avg_price": 180},
-    {"ticker": "NVO", "shares": 1, "avg_price": 410},
-    {"ticker": "EWY", "shares": 3, "avg_price": 95},
-    {"ticker": "RGTI", "shares": 1, "avg_price": 180},
-    {"ticker": "TD", "shares": 10, "avg_price": 410},
-    {"ticker": "SEDG", "shares": 2, "avg_price": 95},
-    {"ticker": "TEVA", "shares": 5, "avg_price": 180},
-    {"ticker": "PEP", "shares": 9, "avg_price": 410},
-    {"ticker": "IAU", "shares": 5.2641, "avg_price": 180},
-    {"ticker": "VOO", "shares": 3.8485, "avg_price": 410},
-    {"ticker": "NVDA", "shares": 1, "avg_price": 95},
-]
+with open("portfolio.json", "r") as f:
+    portfolio = json.load(f)
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
