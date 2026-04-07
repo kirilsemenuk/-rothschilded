@@ -1,0 +1,7 @@
+{
+  "alert_threshold": 3.0,
+  "groq_model": "llama-3.3-70b-versatile",
+  "top_movers_limit": 3,
+  "message_title": "Portfolio Snapshot",
+  "use_ai_summary": true
+}
