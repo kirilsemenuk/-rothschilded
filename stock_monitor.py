@@ -24,10 +24,7 @@ CHAT_ID = os.environ["CHAT_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 
-if USE_AI_SUMMARY:
-    ai_summary = generate_ai_summary(raw_summary)
-else:
-    ai_summary = None
+
 
 
 
@@ -253,12 +250,10 @@ def weekly_report() -> None:
     data = build_portfolio_data()
     raw_summary = build_raw_summary(data)
 
-    ai_summary = None
-    try:
+    if USE_AI_SUMMARY:
         ai_summary = generate_ai_summary(raw_summary)
-    except Exception as exc:
-        print(f"AI summary failed: {exc}")
-
+    else:
+        ai_summary = None
     final_message = build_final_message(data, ai_summary)
     send_telegram_message(final_message)
     print("Portfolio report sent.")
