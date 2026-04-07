@@ -2,7 +2,7 @@ name: Weekly Portfolio Report
 
 on:
   schedule:
-   - cron: "30 9 * * 2"
+   - cron: "50 9 * * 2"
   workflow_dispatch:
 
 jobs:
@@ -25,5 +25,5 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python stock_monitor.py
