@@ -23,6 +23,8 @@ PORTFOLIO = [
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+
 ALERT_THRESHOLD = 3.0
 
 
