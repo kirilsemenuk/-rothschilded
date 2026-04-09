@@ -1,16 +1,18 @@
 import os
+import sys
 import json
 import time
 from typing import Any
 
 import requests
 import yfinance as yf
+import matplotlib.pyplot as plt
 
 
-with open("portfolio.json", "r") as f:
+with open("portfolio.json", "r", encoding="utf-8") as f:
     PORTFOLIO = json.load(f)
 
-with open("config.json", "r") as f:
+with open("config.json", "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
 
@@ -25,9 +27,15 @@ CHAT_ID = os.environ["CHAT_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 
-def get_price_data(ticker: str) -> dict[str, Any] | None:
+def get_price_data(ticker: str, mode: str) -> dict[str, Any] | None:
     stock = yf.Ticker(ticker)
-    hist = stock.history(period="5d")
+
+    if mode == "daily":
+        hist = stock.history(period="2d")
+    elif mode == "weekly":
+        hist = stock.history(period="5d")
+    else:
+        raise ValueError("Mode must be 'daily' or 'weekly'")
 
     if len(hist) < 2:
         return None
@@ -52,7 +60,7 @@ def get_alert(move_pct: float) -> str:
     return ""
 
 
-def build_portfolio_data() -> dict[str, Any]:
+def build_portfolio_data(mode: str) -> dict[str, Any]:
     positions: list[dict[str, Any]] = []
     total_cost = 0.0
     total_value = 0.0
@@ -62,7 +70,7 @@ def build_portfolio_data() -> dict[str, Any]:
         shares = float(position["shares"])
         avg_price = float(position["avg_price"])
 
-        market_data = get_price_data(ticker)
+        market_data = get_price_data(ticker, mode)
 
         if not market_data:
             positions.append(
@@ -134,8 +142,11 @@ def build_portfolio_data() -> dict[str, Any]:
     }
 
 
-def build_raw_summary(data: dict[str, Any]) -> str:
+def build_raw_summary(data: dict[str, Any], mode: str) -> str:
+    period_label = "Daily" if mode == "daily" else "Weekly"
+
     lines = [
+        f"{period_label} portfolio summary",
         f'Portfolio value: ${data["total_value"]:.2f}',
         f'Total P/L: ${data["total_pnl"]:+.2f} ({data["total_pnl_pct"]:+.2f}%)',
         "",
@@ -159,11 +170,13 @@ def build_raw_summary(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def generate_ai_summary(raw_summary: str) -> str:
+def generate_ai_summary(raw_summary: str, mode: str) -> str:
+    period_label = "daily" if mode == "daily" else "weekly"
+
     prompt = f"""
 You are a portfolio assistant.
 
-Write a short portfolio update in plain English.
+Write a short {period_label} portfolio update in plain English.
 Keep it under 6 lines.
 Mention:
 1. overall portfolio direction
@@ -213,14 +226,14 @@ Portfolio data:
     raise RuntimeError("Groq summary failed after retries")
 
 
-def build_final_message(data: dict[str, Any], ai_summary: str | None) -> str:
-    lines = []
+def build_final_message(data: dict[str, Any], ai_summary: str | None, mode: str) -> str:
+    period_label = "Daily" if mode == "daily" else "Weekly"
+    lines = [f"{period_label} {MESSAGE_TITLE}", ""]
 
     if ai_summary:
         lines.append(ai_summary)
         lines.append("")
 
-    lines.append(MESSAGE_TITLE)
     lines.append(f'Value: ${data["total_value"]:.2f}')
     lines.append(f'Total P/L: ${data["total_pnl"]:+.2f} ({data["total_pnl_pct"]:+.2f}%)')
     lines.append("")
@@ -242,6 +255,42 @@ def build_final_message(data: dict[str, Any], ai_summary: str | None) -> str:
     return "\n".join(lines)
 
 
+def get_chart_data(ticker: str, mode: str):
+    stock = yf.Ticker(ticker)
+
+    if mode == "daily":
+        hist = stock.history(period="1d", interval="5m")
+    elif mode == "weekly":
+        hist = stock.history(period="5d", interval="1h")
+    else:
+        raise ValueError("Mode must be 'daily' or 'weekly'")
+
+    if hist.empty:
+        return None
+
+    return hist
+
+
+def create_chart(ticker: str, mode: str, output_path: str = "chart.png") -> str | None:
+    hist = get_chart_data(ticker, mode)
+    if hist is None or hist.empty:
+        return None
+
+    title = f"{ticker} - {'24H' if mode == 'daily' else 'Weekly'} Chart"
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(hist.index, hist["Close"])
+    plt.title(title)
+    plt.xlabel("Time")
+    plt.ylabel("Price")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+
+    return output_path
+
+
 def send_telegram_message(text: str) -> None:
     response = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -254,22 +303,48 @@ def send_telegram_message(text: str) -> None:
     response.raise_for_status()
 
 
-def weekly_report() -> None:
-    data = build_portfolio_data()
-    raw_summary = build_raw_summary(data)
+def send_telegram_photo(image_path: str, caption: str = "") -> None:
+    with open(image_path, "rb") as photo:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+            data={
+                "chat_id": CHAT_ID,
+                "caption": caption[:1024],
+            },
+            files={"photo": photo},
+            timeout=30,
+        )
+    response.raise_for_status()
+
+
+def run_report(mode: str) -> None:
+    data = build_portfolio_data(mode)
+    raw_summary = build_raw_summary(data, mode)
 
     ai_summary = None
 
-    if USE_AI_SUMMARY:
+    if mode == "weekly" and USE_AI_SUMMARY:
         try:
-            ai_summary = generate_ai_summary(raw_summary)
+            ai_summary = generate_ai_summary(raw_summary, mode)
         except Exception as exc:
             print(f"AI summary failed: {exc}")
 
-    final_message = build_final_message(data, ai_summary)
+    final_message = build_final_message(data, ai_summary, mode)
     send_telegram_message(final_message)
-    print("Portfolio report sent.")
+
+    if mode == "weekly" and data["top_movers"]:
+        top_ticker = data["top_movers"][0]["ticker"]
+        chart_path = create_chart(top_ticker, mode)
+        if chart_path:
+            send_telegram_photo(chart_path, caption=f"Weekly chart: {top_ticker}")
+
+    print(f"{mode.title()} report sent.")
 
 
 if __name__ == "__main__":
-    weekly_report()
+    mode = sys.argv[1].lower() if len(sys.argv) > 1 else "daily"
+
+    if mode not in {"daily", "weekly"}:
+        raise ValueError("Mode must be 'daily' or 'weekly'")
+
+    run_report(mode)
