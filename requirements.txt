@@ -1,3 +1,4 @@
-yfinance
 requests
+yfinance
 pandas
+matplotlib
