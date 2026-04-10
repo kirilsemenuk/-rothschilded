@@ -1,3 +1,4 @@
+import html
 import io
 import json
 import math
@@ -46,12 +47,8 @@ def safe_float(value, default: float = 0.0) -> float:
         return default
 
 
-def escape_markdown(text: str) -> str:
-    special_chars = r"_*[]()~`>#+-=|{}.!\\"
-    result = str(text)
-    for ch in special_chars:
-        result = result.replace(ch, f"\\{ch}")
-    return result
+def escape_html(text: str) -> str:
+    return html.escape(str(text))
 
 
 def load_portfolio(file_path: str) -> List[Dict]:
@@ -329,10 +326,10 @@ def build_daily_summary(report: Dict) -> str:
     status = get_market_status(daily_change)
 
     lines = [
-        "📅 *סיכום יומי*",
+        "📅 <b>סיכום יומי</b>",
         "",
-        f"📊 מצב התיק: {escape_markdown(status)}",
-        f"{'🟢' if daily_change >= 0 else '🔴'} שינוי יומי בתיק: {escape_markdown(fmt_money(daily_change))} ({escape_markdown(fmt_pct(daily_pct_total))})",
+        f"📊 מצב התיק: {escape_html(status)}",
+        f"{'🟢' if daily_change >= 0 else '🔴'} שינוי יומי בתיק: {escape_html(fmt_money(daily_change))} ({escape_html(fmt_pct(daily_pct_total))})",
     ]
 
     if report["top_gainers"]:
@@ -340,13 +337,13 @@ def build_daily_summary(report: Dict) -> str:
             f"{x['ticker']} ({fmt_pct(x['daily_pct'])})"
             for x in report["top_gainers"]
         )
-        lines.append(f"🚀 מניות בולטות: {escape_markdown(gainers)}")
+        lines.append(f"🚀 מניות בולטות: {escape_html(gainers)}")
 
     if report["failed_tickers"]:
         failed_text = ", ".join(report["failed_tickers"])
-        lines.append(f"⚠️ לא עודכנו בגלל חסימת Yahoo: {escape_markdown(failed_text)}")
+        lines.append(f"⚠️ לא עודכנו בגלל חסימת Yahoo: {escape_html(failed_text)}")
 
-    lines.append(f"🧠 {escape_markdown(build_insight(report))}")
+    lines.append(f"🧠 {escape_html(build_insight(report))}")
     return "\n".join(lines)
 
 
@@ -363,50 +360,50 @@ def build_portfolio_summary(report: Dict) -> str:
     daily_pct_text = fmt_pct(daily_pct_total)
 
     lines = [
-        "📊 *סיכום פיננסי*",
+        "📊 <b>סיכום פיננסי</b>",
         "",
-        f"📌 מצב: {escape_markdown(status)}",
-        f"💰 *שווי תיק:* {escape_markdown(portfolio_value_text)}",
-        f"📈 *רווח כולל:* {escape_markdown(total_profit_text)} ({escape_markdown(total_profit_pct_text)})",
-        f"{'🟢' if daily_change >= 0 else '🔴'} *שינוי יומי:* {escape_markdown(daily_change_text)} ({escape_markdown(daily_pct_text)})",
+        f"📌 מצב: {escape_html(status)}",
+        f"💰 <b>שווי תיק:</b> {escape_html(portfolio_value_text)}",
+        f"📈 <b>רווח כולל:</b> {escape_html(total_profit_text)} ({escape_html(total_profit_pct_text)})",
+        f"{'🟢' if daily_change >= 0 else '🔴'} <b>שינוי יומי:</b> {escape_html(daily_change_text)} ({escape_html(daily_pct_text)})",
         "",
     ]
 
     if top_star:
         lines.append(
-            f"🏆 *כוכבת היום:* {escape_markdown(top_star['ticker'])} {escape_markdown(fmt_pct(top_star['daily_pct']))}"
+            f"🏆 <b>כוכבת היום:</b> {escape_html(top_star['ticker'])} {escape_html(fmt_pct(top_star['daily_pct']))}"
         )
         lines.append("")
 
     lines.append(
-        f"📊 *רוחב שוק בתיק:* {report['up_count']} עלו | {report['down_count']} ירדו | {report['flat_count']} ללא שינוי"
+        f"📊 <b>רוחב שוק בתיק:</b> {report['up_count']} עלו | {report['down_count']} ירדו | {report['flat_count']} ללא שינוי"
     )
     lines.append("")
-    lines.append("🚀 *מובילות היום:*")
+    lines.append("🚀 <b>מובילות היום:</b>")
 
     for item in report["top_gainers"]:
         icon = "🟢" if item["daily_pct"] >= 0 else "🔴"
         lines.append(
-            f"• {icon} {escape_markdown(item['ticker'])} {escape_markdown(fmt_pct(item['daily_pct']))}"
+            f"• {icon} {escape_html(item['ticker'])} {escape_html(fmt_pct(item['daily_pct']))}"
         )
 
     lines.append("")
-    lines.append("📉 *חלשות היום:*")
+    lines.append("📉 <b>חלשות היום:</b>")
 
     for item in report["top_losers"]:
         icon = "🟢" if item["daily_pct"] >= 0 else "🔴"
         lines.append(
-            f"• {icon} {escape_markdown(item['ticker'])} {escape_markdown(fmt_pct(item['daily_pct']))}"
+            f"• {icon} {escape_html(item['ticker'])} {escape_html(fmt_pct(item['daily_pct']))}"
         )
 
     if report["failed_tickers"]:
         lines.append("")
         lines.append(
-            f"⚠️ *לא עודכנו:* {escape_markdown(', '.join(report['failed_tickers']))}"
+            f"⚠️ <b>לא עודכנו:</b> {escape_html(', '.join(report['failed_tickers']))}"
         )
 
     lines.append("")
-    lines.append(f"🧠 *תובנה:* {escape_markdown(build_insight(report))}")
+    lines.append(f"🧠 <b>תובנה:</b> {escape_html(build_insight(report))}")
 
     return "\n".join(lines)
 
@@ -530,10 +527,14 @@ def send_telegram_message(text: str) -> None:
         json={
             "chat_id": TG_CHAT_ID,
             "text": text,
-            "parse_mode": "MarkdownV2",
+            "parse_mode": "HTML",
         },
         timeout=30,
     )
+
+    if not response.ok:
+        print("Telegram response:", response.text)
+
     response.raise_for_status()
 
 
@@ -542,14 +543,19 @@ def send_telegram_photo(photo_bytes: bytes, caption: str = "") -> None:
     data = {
         "chat_id": TG_CHAT_ID,
         "caption": caption,
-        "parse_mode": "MarkdownV2",
+        "parse_mode": "HTML",
     }
+
     response = requests.post(
         telegram_api_url("sendPhoto"),
         data=data,
         files=files,
         timeout=60,
     )
+
+    if not response.ok:
+        print("Telegram response:", response.text)
+
     response.raise_for_status()
 
 
@@ -579,9 +585,9 @@ def main() -> None:
 
     chart_caption = "\n".join(
         [
-            "📈 *גרף שווי תיק \\- חודש אחרון*",
-            f"💰 שווי נוכחי: {escape_markdown(current_value_text)}",
-            f"📈 רווח כולל: {escape_markdown(total_profit_text)} ({escape_markdown(total_profit_pct_text)})",
+            "📈 <b>גרף שווי תיק - חודש אחרון</b>",
+            f"💰 שווי נוכחי: {escape_html(current_value_text)}",
+            f"📈 רווח כולל: {escape_html(total_profit_text)} ({escape_html(total_profit_pct_text)})",
         ]
     )
 
