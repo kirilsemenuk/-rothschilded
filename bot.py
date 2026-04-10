@@ -64,8 +64,10 @@ def load_portfolio(file_path: str) -> List[Dict]:
         ticker = str(item["ticker"]).upper().strip()
         shares = safe_float(item["shares"])
         avg_price = safe_float(item["avg_price"])
+
         if not ticker:
             continue
+
         cleaned.append(
             {
                 "ticker": ticker,
@@ -181,8 +183,15 @@ def analyze_portfolio(portfolio: List[Dict], data) -> Dict:
         daily_change_value += daily_change_stock
 
     total_profit = total_value - total_cost
-    total_profit_pct = (total_profit / total_cost * 100) if total_cost else 0.0
-    daily_pct_total = (daily_change_value / (total_value - daily_change_value) * 100) if (total_value - daily_change_value) else 0.0
+
+    total_profit_pct = 0.0
+    if total_cost:
+        total_profit_pct = (total_profit / total_cost) * 100
+
+    previous_total_value = total_value - daily_change_value
+    daily_pct_total = 0.0
+    if previous_total_value:
+        daily_pct_total = (daily_change_value / previous_total_value) * 100
 
     top_gainers = sorted(holdings, key=lambda x: x["daily_pct"], reverse=True)[:3]
     top_losers = sorted(holdings, key=lambda x: x["daily_pct"])[:3]
@@ -261,18 +270,26 @@ def build_portfolio_summary(report: Dict) -> str:
     status = get_market_status(daily_change)
     top_star = report["top_gainers"][0] if report["top_gainers"] else None
 
+    portfolio_value_text = f"${report['total_value']:,.2f}"
+    total_profit_text = fmt_money(report["total_profit"])
+    total_profit_pct_text = fmt_pct(report["total_profit_pct"])
+    daily_change_text = fmt_money(daily_change)
+    daily_pct_text = fmt_pct(daily_pct_total)
+
     lines = [
         "📊 *סיכום פיננסי*",
         "",
         f"📌 מצב: {escape_markdown(status)}",
-        f"💰 *שווי תיק:* {escape_markdown(f'${report['total_value']:,.2f}')}",
-        f"📈 *רווח כולל:* {escape_markdown(fmt_money(report['total_profit']))} ({escape_markdown(fmt_pct(report['total_profit_pct']))})",
-        f"{'🟢' if daily_change >= 0 else '🔴'} *שינוי יומי:* {escape_markdown(fmt_money(daily_change))} ({escape_markdown(fmt_pct(daily_pct_total))})",
+        f"💰 *שווי תיק:* {escape_markdown(portfolio_value_text)}",
+        f"📈 *רווח כולל:* {escape_markdown(total_profit_text)} ({escape_markdown(total_profit_pct_text)})",
+        f"{'🟢' if daily_change >= 0 else '🔴'} *שינוי יומי:* {escape_markdown(daily_change_text)} ({escape_markdown(daily_pct_text)})",
         "",
     ]
 
     if top_star:
-        lines.append(f"🏆 *כוכבת היום:* {escape_markdown(top_star['ticker'])} {escape_markdown(fmt_pct(top_star['daily_pct']))}")
+        lines.append(
+            f"🏆 *כוכבת היום:* {escape_markdown(top_star['ticker'])} {escape_markdown(fmt_pct(top_star['daily_pct']))}"
+        )
         lines.append("")
 
     lines.append(
@@ -280,15 +297,21 @@ def build_portfolio_summary(report: Dict) -> str:
     )
     lines.append("")
     lines.append("🚀 *מובילות היום:*")
+
     for item in report["top_gainers"]:
         icon = "🟢" if item["daily_pct"] >= 0 else "🔴"
-        lines.append(f"• {icon} {escape_markdown(item['ticker'])} {escape_markdown(fmt_pct(item['daily_pct']))}")
+        lines.append(
+            f"• {icon} {escape_markdown(item['ticker'])} {escape_markdown(fmt_pct(item['daily_pct']))}"
+        )
 
     lines.append("")
     lines.append("📉 *חלשות היום:*")
+
     for item in report["top_losers"]:
         icon = "🟢" if item["daily_pct"] >= 0 else "🔴"
-        lines.append(f"• {icon} {escape_markdown(item['ticker'])} {escape_markdown(fmt_pct(item['daily_pct']))}")
+        lines.append(
+            f"• {icon} {escape_markdown(item['ticker'])} {escape_markdown(fmt_pct(item['daily_pct']))}"
+        )
 
     lines.append("")
     lines.append(f"🧠 *תובנה:* {escape_markdown(build_insight(report))}")
@@ -317,6 +340,9 @@ def build_chart(report: Dict, data, portfolio: List[Dict]) -> bytes:
     timeseries = get_portfolio_timeseries(data, portfolio)
     dates = [x[0] for x in timeseries]
     values = [x[1] for x in timeseries]
+
+    if not dates or not values:
+        raise ValueError("No chart data available")
 
     total_cost = report["total_cost"]
     profit_now = report["total_profit"]
@@ -449,15 +475,19 @@ def main() -> None:
 
     send_telegram_message(daily_summary)
 
+    current_value_text = f"${report['total_value']:,.2f}"
+    total_profit_text = fmt_money(report["total_profit"])
+    total_profit_pct_text = fmt_pct(report["total_profit_pct"])
+
     chart_caption = "\n".join(
         [
             "📈 *גרף שווי תיק \\- חודש אחרון*",
-            f"💰 שווי נוכחי: {escape_markdown(f'${report['total_value']:,.2f}')}",
-            f"📈 רווח כולל: {escape_markdown(fmt_money(report['total_profit']))} ({escape_markdown(fmt_pct(report['total_profit_pct']))})",
+            f"💰 שווי נוכחי: {escape_markdown(current_value_text)}",
+            f"📈 רווח כולל: {escape_markdown(total_profit_text)} ({escape_markdown(total_profit_pct_text)})",
         ]
     )
-    send_telegram_photo(chart, caption=chart_caption)
 
+    send_telegram_photo(chart, caption=chart_caption)
     send_telegram_message(financial_summary)
 
 
