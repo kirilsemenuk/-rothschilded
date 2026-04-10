@@ -3,7 +3,7 @@ name: Portfolio Telegram Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 16 * * 1-5"   # 19:00 ישראל בקירוב, תתאים לפי שעון קיץ/חורף
+    - cron: "0 16 * * 1-5"
 
 jobs:
   run-bot:
@@ -23,7 +23,7 @@ jobs:
 
       - name: Run bot
         env:
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PORTFOLIO_FILE: portfolio.json
         run: python bot.py
