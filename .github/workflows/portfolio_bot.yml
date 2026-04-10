@@ -1,0 +1,29 @@
+name: Portfolio Telegram Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 16 * * 1-5"   # 19:00 ישראל בקירוב, תתאים לפי שעון קיץ/חורף
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          PORTFOLIO_FILE: portfolio.json
+        run: python bot.py
