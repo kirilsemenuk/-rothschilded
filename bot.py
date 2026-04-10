@@ -2,10 +2,12 @@ import io
 import json
 import math
 import os
+import time
 from typing import Dict, List, Tuple
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import pandas as pd
 import requests
 import yfinance as yf
 
@@ -86,29 +88,100 @@ def get_tickers(portfolio: List[Dict]) -> List[str]:
     return sorted({item["ticker"] for item in portfolio})
 
 
-def download_market_data(tickers: List[str], period: str = "1mo", interval: str = "1d"):
-    data = yf.download(
-        tickers=tickers,
-        period=period,
-        interval=interval,
-        auto_adjust=False,
-        progress=False,
-        group_by="ticker",
-        threads=True,
-    )
+def fetch_ticker_history(
+    ticker: str,
+    period: str = "1mo",
+    interval: str = "1d",
+    max_retries: int = 4,
+    sleep_seconds: float = 3.0,
+):
+    last_error = None
 
-    if data is None or len(data) == 0:
-        raise ValueError("No market data returned from yfinance")
+    for attempt in range(1, max_retries + 1):
+        try:
+            df = yf.download(
+                tickers=ticker,
+                period=period,
+                interval=interval,
+                auto_adjust=False,
+                progress=False,
+                threads=False,
+            )
 
-    return data
+            if df is not None and not df.empty:
+                if isinstance(df.columns, pd.MultiIndex):
+                    if "Close" in df.columns.get_level_values(0):
+                        close_df = df["Close"].copy()
+                        if isinstance(close_df, pd.Series):
+                            close_df = close_df.to_frame(name=ticker)
+                        else:
+                            if len(close_df.columns) == 1:
+                                close_df.columns = [ticker]
+                        close_df = close_df.dropna(how="all")
+                        if not close_df.empty:
+                            return close_df
+
+                if "Close" in df.columns:
+                    close_series = df["Close"].dropna()
+                    if not close_series.empty:
+                        return close_series.to_frame(name=ticker)
+
+            last_error = ValueError(f"No usable data returned for {ticker}")
+
+        except Exception as e:
+            last_error = e
+
+        if attempt < max_retries:
+            time.sleep(sleep_seconds * attempt)
+
+    print(f"WARNING: failed to fetch {ticker}: {last_error}")
+    return None
+
+
+def download_market_data(
+    tickers: List[str],
+    period: str = "1mo",
+    interval: str = "1d",
+):
+    frames = []
+    failed = []
+
+    for ticker in tickers:
+        print(f"Fetching {ticker}...")
+        frame = fetch_ticker_history(
+            ticker=ticker,
+            period=period,
+            interval=interval,
+            max_retries=4,
+            sleep_seconds=3.0,
+        )
+
+        if frame is None or frame.empty:
+            failed.append(ticker)
+        else:
+            frames.append(frame)
+
+        time.sleep(1.5)
+
+    if not frames:
+        raise ValueError(
+            f"No market data returned from yfinance. Failed tickers: {', '.join(failed)}"
+        )
+
+    combined = pd.concat(frames, axis=1).sort_index()
+    combined = combined.dropna(how="all")
+
+    print(f"Fetched data for {len(combined.columns)} tickers.")
+    if failed:
+        print(f"Failed tickers: {failed}")
+
+    return combined, failed
 
 
 def get_close_series(data, ticker: str):
-    try:
-        series = data[ticker]["Close"].dropna()
-    except Exception:
-        series = data["Close"][ticker].dropna()
-    return series
+    if ticker not in data.columns:
+        raise KeyError(f"{ticker} not found in downloaded data")
+    return data[ticker].dropna()
 
 
 def get_last_two_closes(data, ticker: str) -> Tuple[float, float]:
@@ -131,6 +204,10 @@ def get_portfolio_timeseries(data, portfolio: List[Dict]) -> List[Tuple]:
     for item in portfolio:
         ticker = item["ticker"]
         shares = safe_float(item["shares"])
+
+        if ticker not in data.columns:
+            continue
+
         closes = get_close_series(data, ticker)
 
         for idx, price in closes.items():
@@ -141,16 +218,21 @@ def get_portfolio_timeseries(data, portfolio: List[Dict]) -> List[Tuple]:
     return sorted(totals_by_date.items(), key=lambda x: x[0])
 
 
-def analyze_portfolio(portfolio: List[Dict], data) -> Dict:
+def analyze_portfolio(portfolio: List[Dict], data, failed_tickers: List[str]) -> Dict:
     holdings = []
     total_value = 0.0
     total_cost = 0.0
     daily_change_value = 0.0
+    skipped = []
 
     for item in portfolio:
         ticker = item["ticker"]
         shares = safe_float(item["shares"])
         avg_price = safe_float(item["avg_price"])
+
+        if ticker not in data.columns:
+            skipped.append(ticker)
+            continue
 
         last_close, prev_close = get_last_two_closes(data, ticker)
 
@@ -182,16 +264,14 @@ def analyze_portfolio(portfolio: List[Dict], data) -> Dict:
         total_cost += cost_basis
         daily_change_value += daily_change_stock
 
-    total_profit = total_value - total_cost
+    if not holdings:
+        raise ValueError("No holdings could be analyzed from the downloaded data")
 
-    total_profit_pct = 0.0
-    if total_cost:
-        total_profit_pct = (total_profit / total_cost) * 100
+    total_profit = total_value - total_cost
+    total_profit_pct = (total_profit / total_cost * 100) if total_cost else 0.0
 
     previous_total_value = total_value - daily_change_value
-    daily_pct_total = 0.0
-    if previous_total_value:
-        daily_pct_total = (daily_change_value / previous_total_value) * 100
+    daily_pct_total = (daily_change_value / previous_total_value * 100) if previous_total_value else 0.0
 
     top_gainers = sorted(holdings, key=lambda x: x["daily_pct"], reverse=True)[:3]
     top_losers = sorted(holdings, key=lambda x: x["daily_pct"])[:3]
@@ -213,6 +293,8 @@ def analyze_portfolio(portfolio: List[Dict], data) -> Dict:
         "up_count": up_count,
         "down_count": down_count,
         "flat_count": flat_count,
+        "failed_tickers": failed_tickers,
+        "skipped_tickers": skipped,
     }
 
 
@@ -259,6 +341,10 @@ def build_daily_summary(report: Dict) -> str:
             for x in report["top_gainers"]
         )
         lines.append(f"🚀 מניות בולטות: {escape_markdown(gainers)}")
+
+    if report["failed_tickers"]:
+        failed_text = ", ".join(report["failed_tickers"])
+        lines.append(f"⚠️ לא עודכנו בגלל חסימת Yahoo: {escape_markdown(failed_text)}")
 
     lines.append(f"🧠 {escape_markdown(build_insight(report))}")
     return "\n".join(lines)
@@ -311,6 +397,12 @@ def build_portfolio_summary(report: Dict) -> str:
         icon = "🟢" if item["daily_pct"] >= 0 else "🔴"
         lines.append(
             f"• {icon} {escape_markdown(item['ticker'])} {escape_markdown(fmt_pct(item['daily_pct']))}"
+        )
+
+    if report["failed_tickers"]:
+        lines.append("")
+        lines.append(
+            f"⚠️ *לא עודכנו:* {escape_markdown(', '.join(report['failed_tickers']))}"
         )
 
     lines.append("")
@@ -466,8 +558,14 @@ def main() -> None:
 
     portfolio = load_portfolio(PORTFOLIO_FILE)
     tickers = get_tickers(portfolio)
-    data = download_market_data(tickers, period="1mo", interval="1d")
-    report = analyze_portfolio(portfolio, data)
+
+    data, failed_tickers = download_market_data(
+        tickers,
+        period="1mo",
+        interval="1d",
+    )
+
+    report = analyze_portfolio(portfolio, data, failed_tickers)
 
     daily_summary = build_daily_summary(report)
     financial_summary = build_portfolio_summary(report)
