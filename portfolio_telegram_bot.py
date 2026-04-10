@@ -1,599 +1,292 @@
-import html
-import io
 import json
-import math
-import os
-import time
+from datetime import datetime
 from typing import Dict, List, Tuple
 
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
-import pandas as pd
-import requests
-import yfinance as yf
+
+CHIP_TICKERS = {"AMD", "NVDA", "INTC", "AMAT", "TSM", "AVGO", "MU", "QCOM"}
 
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
-PORTFOLIO_FILE = os.environ.get("PORTFOLIO_FILE", "portfolio.json")
+def load_portfolio(path: str = "portfolio.json") -> List[dict]:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-def require_env() -> None:
-    if not TELEGRAM_BOT_TOKEN:
-        raise ValueError("Missing TELEGRAM_BOT_TOKEN")
-    if not TG_CHAT_ID:
-        raise ValueError("Missing TG_CHAT_ID")
+def format_currency(value: float) -> str:
+    sign = "+" if value > 0 else ""
+    return f"{sign}${value:,.2f}"
 
 
-def fmt_money(x: float) -> str:
-    sign = "+" if x > 0 else ""
-    return f"{sign}${x:,.2f}"
+def format_percent(value: float) -> str:
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value:.2f}%"
 
 
-def fmt_pct(x: float) -> str:
-    sign = "+" if x > 0 else ""
-    return f"{sign}{x:.2f}%"
+def get_change_emoji(value: float) -> str:
+    if value > 0:
+        return "🟢"
+    if value < 0:
+        return "🔴"
+    return "⚪️"
 
 
-def safe_float(value, default: float = 0.0) -> float:
-    try:
-        if value is None:
-            return default
-        v = float(value)
-        if math.isnan(v):
-            return default
-        return v
-    except Exception:
-        return default
+def get_status_text(daily_change: float) -> str:
+    if daily_change > 0:
+        return "יום חיובי"
+    if daily_change < 0:
+        return "יום שלילי"
+    return "ללא שינוי"
 
 
-def escape_html(text: str) -> str:
-    return html.escape(str(text))
-
-
-def load_portfolio(file_path: str) -> List[Dict]:
-    with open(file_path, "r", encoding="utf-8") as f:
-        portfolio = json.load(f)
-
-    if not isinstance(portfolio, list):
-        raise ValueError("portfolio.json must contain a list")
-
-    cleaned = []
-    for item in portfolio:
-        ticker = str(item["ticker"]).upper().strip()
-        shares = safe_float(item["shares"])
-        avg_price = safe_float(item["avg_price"])
-
-        if not ticker:
-            continue
-
-        cleaned.append(
-            {
-                "ticker": ticker,
-                "shares": shares,
-                "avg_price": avg_price,
-            }
-        )
-
-    if not cleaned:
-        raise ValueError("Portfolio is empty")
-
-    return cleaned
-
-
-def get_tickers(portfolio: List[Dict]) -> List[str]:
-    return sorted({item["ticker"] for item in portfolio})
-
-
-def fetch_ticker_history(
-    ticker: str,
-    period: str = "1mo",
-    interval: str = "1d",
-    max_retries: int = 4,
-    sleep_seconds: float = 3.0,
-):
-    last_error = None
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            df = yf.download(
-                tickers=ticker,
-                period=period,
-                interval=interval,
-                auto_adjust=False,
-                progress=False,
-                threads=False,
-            )
-
-            if df is not None and not df.empty:
-                if isinstance(df.columns, pd.MultiIndex):
-                    if "Close" in df.columns.get_level_values(0):
-                        close_df = df["Close"].copy()
-                        if isinstance(close_df, pd.Series):
-                            close_df = close_df.to_frame(name=ticker)
-                        else:
-                            if len(close_df.columns) == 1:
-                                close_df.columns = [ticker]
-                        close_df = close_df.dropna(how="all")
-                        if not close_df.empty:
-                            return close_df
-
-                if "Close" in df.columns:
-                    close_series = df["Close"].dropna()
-                    if not close_series.empty:
-                        return close_series.to_frame(name=ticker)
-
-            last_error = ValueError(f"No usable data returned for {ticker}")
-
-        except Exception as e:
-            last_error = e
-
-        if attempt < max_retries:
-            time.sleep(sleep_seconds * attempt)
-
-    print(f"WARNING: failed to fetch {ticker}: {last_error}")
-    return None
-
-
-def download_market_data(
-    tickers: List[str],
-    period: str = "1mo",
-    interval: str = "1d",
-):
-    frames = []
-    failed = []
-
-    for ticker in tickers:
-        print(f"Fetching {ticker}...")
-        frame = fetch_ticker_history(
-            ticker=ticker,
-            period=period,
-            interval=interval,
-            max_retries=4,
-            sleep_seconds=3.0,
-        )
-
-        if frame is None or frame.empty:
-            failed.append(ticker)
-        else:
-            frames.append(frame)
-
-        time.sleep(1.5)
-
-    if not frames:
-        raise ValueError(
-            f"No market data returned from yfinance. Failed tickers: {', '.join(failed)}"
-        )
-
-    combined = pd.concat(frames, axis=1).sort_index()
-    combined = combined.dropna(how="all")
-
-    print(f"Fetched data for {len(combined.columns)} tickers.")
-    if failed:
-        print(f"Failed tickers: {failed}")
-
-    return combined, failed
-
-
-def get_close_series(data, ticker: str):
-    if ticker not in data.columns:
-        raise KeyError(f"{ticker} not found in downloaded data")
-    return data[ticker].dropna()
-
-
-def get_last_two_closes(data, ticker: str) -> Tuple[float, float]:
-    closes = get_close_series(data, ticker)
-
-    if len(closes) == 0:
-        return 0.0, 0.0
-    if len(closes) == 1:
-        close = safe_float(closes.iloc[-1])
-        return close, close
-
-    last_close = safe_float(closes.iloc[-1])
-    prev_close = safe_float(closes.iloc[-2])
-    return last_close, prev_close
-
-
-def get_portfolio_timeseries(data, portfolio: List[Dict]) -> List[Tuple]:
-    totals_by_date: Dict = {}
+def build_positions_snapshot(
+    portfolio: List[dict],
+    prices: Dict[str, dict],
+) -> List[dict]:
+    """
+    prices format:
+    {
+        "AMD": {"price": 125.25, "prev_close": 120.64},
+        "NVDA": {"price": 133.74, "prev_close": 130.56},
+        ...
+    }
+    """
+    snapshot = []
 
     for item in portfolio:
-        ticker = item["ticker"]
-        shares = safe_float(item["shares"])
+        ticker = item["ticker"].upper()
+        shares = float(item["shares"])
+        avg_price = float(item["avg_price"])
 
-        if ticker not in data.columns:
+        if ticker not in prices:
             continue
 
-        closes = get_close_series(data, ticker)
+        current_price = float(prices[ticker]["price"])
+        prev_close = float(prices[ticker]["prev_close"])
 
-        for idx, price in closes.items():
-            day = idx.to_pydatetime()
-            totals_by_date.setdefault(day, 0.0)
-            totals_by_date[day] += shares * safe_float(price)
-
-    return sorted(totals_by_date.items(), key=lambda x: x[0])
-
-
-def analyze_portfolio(portfolio: List[Dict], data, failed_tickers: List[str]) -> Dict:
-    holdings = []
-    total_value = 0.0
-    total_cost = 0.0
-    daily_change_value = 0.0
-    skipped = []
-
-    for item in portfolio:
-        ticker = item["ticker"]
-        shares = safe_float(item["shares"])
-        avg_price = safe_float(item["avg_price"])
-
-        if ticker not in data.columns:
-            skipped.append(ticker)
-            continue
-
-        last_close, prev_close = get_last_two_closes(data, ticker)
-
-        market_value = shares * last_close
+        market_value = shares * current_price
         cost_basis = shares * avg_price
-        profit = market_value - cost_basis
-        profit_pct = (profit / cost_basis * 100) if cost_basis else 0.0
+        total_profit = market_value - cost_basis
+        total_profit_pct = (total_profit / cost_basis * 100) if cost_basis else 0.0
 
-        daily_change_stock = shares * (last_close - prev_close)
-        daily_pct = ((last_close - prev_close) / prev_close * 100) if prev_close else 0.0
+        daily_pnl = shares * (current_price - prev_close)
+        daily_pct = ((current_price - prev_close) / prev_close * 100) if prev_close else 0.0
 
-        holdings.append(
-            {
-                "ticker": ticker,
-                "shares": shares,
-                "avg_price": avg_price,
-                "last_close": last_close,
-                "prev_close": prev_close,
-                "market_value": market_value,
-                "cost_basis": cost_basis,
-                "profit": profit,
-                "profit_pct": profit_pct,
-                "daily_change_value": daily_change_stock,
-                "daily_pct": daily_pct,
-            }
-        )
+        snapshot.append({
+            "ticker": ticker,
+            "shares": shares,
+            "avg_price": avg_price,
+            "current_price": current_price,
+            "prev_close": prev_close,
+            "market_value": market_value,
+            "cost_basis": cost_basis,
+            "total_profit": total_profit,
+            "total_profit_pct": total_profit_pct,
+            "daily_pnl": daily_pnl,
+            "daily_pct": daily_pct,
+        })
 
-        total_value += market_value
-        total_cost += cost_basis
-        daily_change_value += daily_change_stock
+    return snapshot
 
-    if not holdings:
-        raise ValueError("No holdings could be analyzed from the downloaded data")
 
-    total_profit = total_value - total_cost
-    total_profit_pct = (total_profit / total_cost * 100) if total_cost else 0.0
+def calculate_portfolio_metrics(snapshot: List[dict]) -> dict:
+    portfolio_value = sum(x["market_value"] for x in snapshot)
+    cost_basis = sum(x["cost_basis"] for x in snapshot)
+    total_profit = portfolio_value - cost_basis
+    total_profit_pct = (total_profit / cost_basis * 100) if cost_basis else 0.0
 
-    previous_total_value = total_value - daily_change_value
-    daily_pct_total = (daily_change_value / previous_total_value * 100) if previous_total_value else 0.0
+    daily_change = sum(x["daily_pnl"] for x in snapshot)
+    prev_value = sum(x["shares"] * x["prev_close"] for x in snapshot)
+    daily_change_pct = (daily_change / prev_value * 100) if prev_value else 0.0
 
-    top_gainers = sorted(holdings, key=lambda x: x["daily_pct"], reverse=True)[:3]
-    top_losers = sorted(holdings, key=lambda x: x["daily_pct"])[:3]
+    gainers = [x for x in snapshot if x["daily_pct"] > 0]
+    losers = [x for x in snapshot if x["daily_pct"] < 0]
+    unchanged = [x for x in snapshot if abs(x["daily_pct"]) < 1e-9]
 
-    up_count = sum(1 for x in holdings if x["daily_pct"] > 0)
-    down_count = sum(1 for x in holdings if x["daily_pct"] < 0)
-    flat_count = sum(1 for x in holdings if x["daily_pct"] == 0)
+    top_gainer = max(snapshot, key=lambda x: x["daily_pct"], default=None)
+    top_impact = max(snapshot, key=lambda x: x["daily_pnl"], default=None)
 
     return {
-        "holdings": holdings,
-        "total_value": total_value,
-        "total_cost": total_cost,
+        "portfolio_value": portfolio_value,
+        "cost_basis": cost_basis,
         "total_profit": total_profit,
         "total_profit_pct": total_profit_pct,
-        "daily_change_value": daily_change_value,
-        "daily_pct_total": daily_pct_total,
-        "top_gainers": top_gainers,
-        "top_losers": top_losers,
-        "up_count": up_count,
-        "down_count": down_count,
-        "flat_count": flat_count,
-        "failed_tickers": failed_tickers,
-        "skipped_tickers": skipped,
+        "daily_change": daily_change,
+        "daily_change_pct": daily_change_pct,
+        "gainers_count": len(gainers),
+        "losers_count": len(losers),
+        "unchanged_count": len(unchanged),
+        "top_gainer": top_gainer,
+        "top_impact": top_impact,
+        "top_gainers": sorted(gainers, key=lambda x: x["daily_pct"], reverse=True)[:3],
+        "top_losers": sorted(losers, key=lambda x: x["daily_pct"])[:3],
     }
 
 
-def get_market_status(daily_change: float) -> str:
-    if daily_change > 50:
-        return "🚀 יום חזק מאוד"
+def build_daily_insight(metrics: dict) -> str:
+    top_gainers = metrics["top_gainers"]
+    top_impact = metrics["top_impact"]
+    daily_change = metrics["daily_change"]
+
+    if not top_impact:
+        return "לא זוהתה תנועה משמעותית היום."
+
+    top_gainer_tickers = {x["ticker"] for x in top_gainers}
+    chip_names = top_gainer_tickers.intersection(CHIP_TICKERS)
+
+    if chip_names and daily_change > 0:
+        joined = ", ".join(sorted(chip_names))
+        return f"סקטור השבבים הוביל את העלייה היום ({joined}), כאשר {top_impact['ticker']} תרמה הכי הרבה לתיק."
+
     if daily_change > 0:
-        return "🟢 יום חיובי"
-    if daily_change > -50:
-        return "🟠 יום חלש"
-    return "🔴 יום שלילי"
+        return f"{top_impact['ticker']} הייתה בעלת ההשפעה הדולרית הגבוהה ביותר היום ודחפה את התיק לעלייה."
+
+    if daily_change < 0:
+        return f"{top_impact['ticker']} הייתה הגורם המרכזי להשפעה על התיק היום, על רקע יום חלש יותר."
+
+    return "התיק סיים את היום כמעט ללא שינוי, ללא מניה דומיננטית במיוחד."
 
 
-def build_insight(report: Dict) -> str:
-    gainers = report["top_gainers"]
-    losers = report["top_losers"]
+def build_score(metrics: dict) -> float:
+    """
+    ציון יום פשוט בין 0 ל-10
+    """
+    score = 5.0
 
-    if gainers and gainers[0]["daily_pct"] > 2:
-        return f"הובלה חזקה של {gainers[0]['ticker']} דחפה את התיק למעלה."
-    if losers and losers[0]["daily_pct"] < -2:
-        return f"חולשה ב-{losers[0]['ticker']} הפעילה לחץ על התיק."
-    if report["daily_change_value"] > 0:
-        return "התיק התקדם היום בצורה חיובית וללא תנודה חריגה."
-    if report["daily_change_value"] < 0:
-        return "התיק נחלש מעט היום, אך ללא שינוי קיצוני."
-    return "היום נרשמה יציבות יחסית בתיק."
+    # שינוי יומי
+    score += min(max(metrics["daily_change_pct"] * 2.0, -3.0), 3.0)
 
+    # רוחב שוק
+    breadth = metrics["gainers_count"] - metrics["losers_count"]
+    score += min(max(breadth * 0.25, -2.0), 2.0)
 
-def build_daily_summary(report: Dict) -> str:
-    daily_change = report["daily_change_value"]
-    daily_pct_total = report["daily_pct_total"]
-    status = get_market_status(daily_change)
+    # בונוס על מניה מובילה חזקה
+    if metrics["top_gainer"] and metrics["top_gainer"]["daily_pct"] >= 3:
+        score += 0.7
 
-    lines = [
-        "📅 <b>סיכום יומי</b>",
-        "",
-        f"📊 מצב התיק: {escape_html(status)}",
-        f"{'🟢' if daily_change >= 0 else '🔴'} שינוי יומי בתיק: {escape_html(fmt_money(daily_change))} ({escape_html(fmt_pct(daily_pct_total))})",
-    ]
-
-    if report["top_gainers"]:
-        gainers = ", ".join(
-            f"{x['ticker']} ({fmt_pct(x['daily_pct'])})"
-            for x in report["top_gainers"]
-        )
-        lines.append(f"🚀 מניות בולטות: {escape_html(gainers)}")
-
-    if report["failed_tickers"]:
-        failed_text = ", ".join(report["failed_tickers"])
-        lines.append(f"⚠️ לא עודכנו בגלל חסימת Yahoo: {escape_html(failed_text)}")
-
-    lines.append(f"🧠 {escape_html(build_insight(report))}")
-    return "\n".join(lines)
+    return round(min(max(score, 0), 10), 1)
 
 
-def build_portfolio_summary(report: Dict) -> str:
-    daily_change = report["daily_change_value"]
-    daily_pct_total = report["daily_pct_total"]
-    status = get_market_status(daily_change)
-    top_star = report["top_gainers"][0] if report["top_gainers"] else None
+def build_daily_summary_message(
+    metrics: dict,
+    high_30d: float | None = None,
+    low_30d: float | None = None,
+) -> str:
+    status_emoji = get_change_emoji(metrics["daily_change"])
+    daily_score = build_score(metrics)
+    insight = build_daily_insight(metrics)
 
-    portfolio_value_text = f"${report['total_value']:,.2f}"
-    total_profit_text = fmt_money(report["total_profit"])
-    total_profit_pct_text = fmt_pct(report["total_profit_pct"])
-    daily_change_text = fmt_money(daily_change)
-    daily_pct_text = fmt_pct(daily_pct_total)
+    winners_lines = []
+    for item in metrics["top_gainers"]:
+        winners_lines.append(f"• {get_change_emoji(item['daily_pct'])} {item['ticker']} {format_percent(item['daily_pct'])}")
+
+    losers_lines = []
+    for item in metrics["top_losers"]:
+        losers_lines.append(f"• {get_change_emoji(item['daily_pct'])} {item['ticker']} {format_percent(item['daily_pct'])}")
+
+    top_gainer_line = "—"
+    if metrics["top_gainer"]:
+        top_gainer_line = f"{metrics['top_gainer']['ticker']} {format_percent(metrics['top_gainer']['daily_pct'])}"
+
+    top_impact_line = "—"
+    if metrics["top_impact"]:
+        top_impact_line = f"{metrics['top_impact']['ticker']} ({format_currency(metrics['top_impact']['daily_pnl'])} לתיק)"
 
     lines = [
-        "📊 <b>סיכום פיננסי</b>",
+        "📊 סיכום יומי – Rothschild",
         "",
-        f"📌 מצב: {escape_html(status)}",
-        f"💰 <b>שווי תיק:</b> {escape_html(portfolio_value_text)}",
-        f"📈 <b>רווח כולל:</b> {escape_html(total_profit_text)} ({escape_html(total_profit_pct_text)})",
-        f"{'🟢' if daily_change >= 0 else '🔴'} <b>שינוי יומי:</b> {escape_html(daily_change_text)} ({escape_html(daily_pct_text)})",
+        f"{status_emoji} מצב התיק: {get_status_text(metrics['daily_change'])}",
+        f"💰 שווי תיק: {format_currency(metrics['portfolio_value'])}",
+        f"📈 רווח כולל: {format_currency(metrics['total_profit'])} ({format_percent(metrics['total_profit_pct'])})",
+        f"🟢 שינוי יומי: {format_currency(metrics['daily_change'])} ({format_percent(metrics['daily_change_pct'])})",
+        f"🎯 ציון יום: {daily_score}/10",
         "",
+        "──────────────",
+        "",
+        f"🏆 מניה בולטת היום: {top_gainer_line}",
+        f"💵 השפעה דולרית מובילה: {top_impact_line}",
+        "",
+        f"📊 רוחב שוק בתיק: {metrics['gainers_count']} עלו | {metrics['losers_count']} ירדו | {metrics['unchanged_count']} ללא שינוי",
+        "",
+        "🚀 מובילות היום:",
+        *(winners_lines if winners_lines else ["• אין"]),
+        "",
+        "📉 חלשות היום:",
+        *(losers_lines if losers_lines else ["• אין"]),
+        "",
+        f"🧠 תובנה: {insight}",
     ]
 
-    if top_star:
-        lines.append(
-            f"🏆 <b>כוכבת היום:</b> {escape_html(top_star['ticker'])} {escape_html(fmt_pct(top_star['daily_pct']))}"
-        )
-        lines.append("")
-
-    lines.append(
-        f"📊 <b>רוחב שוק בתיק:</b> {report['up_count']} עלו | {report['down_count']} ירדו | {report['flat_count']} ללא שינוי"
-    )
-    lines.append("")
-    lines.append("🚀 <b>מובילות היום:</b>")
-
-    for item in report["top_gainers"]:
-        icon = "🟢" if item["daily_pct"] >= 0 else "🔴"
-        lines.append(
-            f"• {icon} {escape_html(item['ticker'])} {escape_html(fmt_pct(item['daily_pct']))}"
-        )
-
-    lines.append("")
-    lines.append("📉 <b>חלשות היום:</b>")
-
-    for item in report["top_losers"]:
-        icon = "🟢" if item["daily_pct"] >= 0 else "🔴"
-        lines.append(
-            f"• {icon} {escape_html(item['ticker'])} {escape_html(fmt_pct(item['daily_pct']))}"
-        )
-
-    if report["failed_tickers"]:
-        lines.append("")
-        lines.append(
-            f"⚠️ <b>לא עודכנו:</b> {escape_html(', '.join(report['failed_tickers']))}"
-        )
-
-    lines.append("")
-    lines.append(f"🧠 <b>תובנה:</b> {escape_html(build_insight(report))}")
+    if high_30d is not None or low_30d is not None:
+        lines.extend([
+            "",
+            "📍 נקודות מפתח:",
+            f"🔺 שיא 30 יום: {format_currency(high_30d) if high_30d is not None else '—'}",
+            f"🔻 שפל 30 יום: {format_currency(low_30d) if low_30d is not None else '—'}",
+        ])
 
     return "\n".join(lines)
 
 
-def get_chart_trend(values: List[float]) -> str:
-    if len(values) < 2 or values[0] == 0:
-        return "ללא שינוי מהותי"
-
-    change_pct = ((values[-1] - values[0]) / values[0]) * 100
-
-    if change_pct > 3:
-        return f"עלייה חזקה ({change_pct:.2f}%+)"
-    if change_pct > 0:
-        return f"עלייה מתונה ({change_pct:.2f}%+)"
-    if change_pct < -3:
-        return f"ירידה חדה ({change_pct:.2f}%)"
-    if change_pct < 0:
-        return f"ירידה מתונה ({change_pct:.2f}%)"
-    return "ללא שינוי מהותי"
-
-
-def build_chart(report: Dict, data, portfolio: List[Dict]) -> bytes:
-    timeseries = get_portfolio_timeseries(data, portfolio)
-    dates = [x[0] for x in timeseries]
-    values = [x[1] for x in timeseries]
-
-    if not dates or not values:
-        raise ValueError("No chart data available")
-
-    total_cost = report["total_cost"]
-    profit_now = report["total_profit"]
-    profit_pct_now = report["total_profit_pct"]
-    trend = get_chart_trend(values)
-
-    fig, ax = plt.subplots(figsize=(10.5, 5.8))
-
-    ax.plot(dates, values, linewidth=2.6, label="Portfolio Value")
-    ax.axhline(
-        y=total_cost,
-        linestyle="--",
-        linewidth=1.8,
-        alpha=0.8,
-        label=f"Cost Basis (${total_cost:,.0f})",
+def build_chart_caption(
+    portfolio_value: float,
+    total_profit: float,
+    total_profit_pct: float,
+) -> str:
+    return (
+        "📈 גרף שווי תיק - 30 ימים אחרונים\n\n"
+        f"💰 שווי נוכחי: {format_currency(portfolio_value)}\n"
+        f"📊 רווח כולל: {format_currency(total_profit)} ({format_percent(total_profit_pct)})"
     )
 
-    ax.fill_between(
-        dates,
-        values,
-        total_cost,
-        where=[v >= total_cost for v in values],
-        alpha=0.18,
-        interpolate=True,
-        label="Profit Zone",
-    )
 
-    ax.fill_between(
-        dates,
-        values,
-        total_cost,
-        where=[v < total_cost for v in values],
-        alpha=0.10,
-        interpolate=True,
-        label="Below Cost",
-    )
-
-    max_idx = values.index(max(values))
-    min_idx = values.index(min(values))
-
-    ax.scatter(dates[max_idx], values[max_idx], s=70, zorder=5)
-    ax.scatter(dates[min_idx], values[min_idx], s=70, zorder=5)
-
-    ax.annotate(
-        f"High\n${values[max_idx]:,.0f}",
-        xy=(dates[max_idx], values[max_idx]),
-        xytext=(0, 12),
-        textcoords="offset points",
-        ha="center",
-        fontsize=9,
-    )
-
-    ax.annotate(
-        f"Low\n${values[min_idx]:,.0f}",
-        xy=(dates[min_idx], values[min_idx]),
-        xytext=(0, -28),
-        textcoords="offset points",
-        ha="center",
-        fontsize=9,
-    )
-
-    ax.set_title(
-        f"Portfolio Value - Last 1 Month\n"
-        f"Current Profit: ${profit_now:,.2f} ({profit_pct_now:.2f}%) | Trend: {trend}",
-        fontsize=13,
-        pad=14,
-    )
-
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Value ($)")
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-    plt.setp(ax.get_xticklabels(), rotation=30, ha="right", fontsize=8)
-
-    ax.grid(True, alpha=0.25)
-    ax.legend(loc="best", fontsize=9)
-    fig.tight_layout()
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=180, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf.read()
-
-
-def telegram_api_url(method: str) -> str:
-    return f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
-
-
-def send_telegram_message(text: str) -> None:
-    response = requests.post(
-        telegram_api_url("sendMessage"),
-        json={
-            "chat_id": TG_CHAT_ID,
-            "text": text,
-            "parse_mode": "HTML",
-        },
-        timeout=30,
-    )
-
-    if not response.ok:
-        print("Telegram response:", response.text)
-
-    response.raise_for_status()
-
-
-def send_telegram_photo(photo_bytes: bytes, caption: str = "") -> None:
-    files = {"photo": ("portfolio.png", photo_bytes, "image/png")}
-    data = {
-        "chat_id": TG_CHAT_ID,
-        "caption": caption,
-        "parse_mode": "HTML",
-    }
-
-    response = requests.post(
-        telegram_api_url("sendPhoto"),
-        data=data,
-        files=files,
-        timeout=60,
-    )
-
-    if not response.ok:
-        print("Telegram response:", response.text)
-
-    response.raise_for_status()
-
-
-def main() -> None:
-    require_env()
-
-    portfolio = load_portfolio(PORTFOLIO_FILE)
-    tickers = get_tickers(portfolio)
-
-    data, failed_tickers = download_market_data(
-        tickers,
-        period="1mo",
-        interval="1d",
-    )
-
-    report = analyze_portfolio(portfolio, data, failed_tickers)
-
-    daily_summary = build_daily_summary(report)
-    financial_summary = build_portfolio_summary(report)
-    chart = build_chart(report, data, portfolio)
-
-    send_telegram_message(daily_summary)
-
-    current_value_text = f"${report['total_value']:,.2f}"
-    total_profit_text = fmt_money(report["total_profit"])
-    total_profit_pct_text = fmt_pct(report["total_profit_pct"])
-
-    chart_caption = "\n".join(
-        [
-            "📈 <b>גרף שווי תיק - חודש אחרון</b>",
-            f"💰 שווי נוכחי: {escape_html(current_value_text)}",
-            f"📈 רווח כולל: {escape_html(total_profit_text)} ({escape_html(total_profit_pct_text)})",
-        ]
-    )
-
-    send_telegram_photo(chart, caption=chart_caption)
-    send_telegram_message(financial_summary)
-
+# =========================
+# דוגמת שימוש מלאה
+# =========================
 
 if __name__ == "__main__":
-    main()
+    # טוען את התיק מהקובץ שלך
+    portfolio = load_portfolio("portfolio.json")
+
+    # דוגמת מחירים בלבד.
+    # כאן תדביק את המחירים שאתה כבר מביא מ-yfinance
+    prices = {
+        "AAPL": {"price": 135.97, "prev_close": 136.61},
+        "AMD": {"price": 125.25, "prev_close": 120.64},
+        "AMAT": {"price": 162.90, "prev_close": 162.14},
+        "IBIT": {"price": 39.00, "prev_close": 38.80},
+        "INTC": {"price": 19.98, "prev_close": 19.66},
+        "NVO": {"price": 46.90, "prev_close": 46.58},
+        "EWY": {"price": 120.51, "prev_close": 121.67},
+        "RGTI": {"price": 7.90, "prev_close": 7.74},
+        "TD": {"price": 83.10, "prev_close": 82.83},
+        "SEDG": {"price": 19.05, "prev_close": 18.88},
+        "TEVA": {"price": 24.33, "prev_close": 24.50},
+        "PEP": {"price": 153.25, "prev_close": 152.89},
+        "IAU": {"price": 76.22, "prev_close": 75.99},
+        "VOO": {"price": 612.20, "prev_close": 609.75},
+        "NVDA": {"price": 133.73, "prev_close": 130.56},
+    }
+
+    snapshot = build_positions_snapshot(portfolio, prices)
+    metrics = calculate_portfolio_metrics(snapshot)
+
+    # אם יש לך נתוני היסטוריה של 30 יום, תכניס כאן
+    high_30d = 5700.00
+    low_30d = 5212.00
+
+    daily_message = build_daily_summary_message(
+        metrics=metrics,
+        high_30d=high_30d,
+        low_30d=low_30d,
+    )
+
+    chart_caption = build_chart_caption(
+        portfolio_value=metrics["portfolio_value"],
+        total_profit=metrics["total_profit"],
+        total_profit_pct=metrics["total_profit_pct"],
+    )
+
+    print("=== DAILY MESSAGE ===")
+    print(daily_message)
+    print()
+    print("=== CHART CAPTION ===")
+    print(chart_caption)
