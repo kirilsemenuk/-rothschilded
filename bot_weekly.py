@@ -14,13 +14,25 @@ import matplotlib.dates as mdates
 # =========================
 # Environment Variables
 # =========================
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TG_CHAT_ID = os.environ["TG_CHAT_ID"]
+# =========================
+# Environment Variables
+# =========================
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TG_BOT_TOKEN")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID") or os.environ.get("CHAT_ID")
 PORTFOLIO_JSON = os.environ.get("PORTFOLIO_JSON", "portfolio.json")
 BENCHMARK_TICKER = os.environ.get("BENCHMARK_TICKER", "VOO")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError(
+        "Missing Telegram bot token. Expected TELEGRAM_BOT_TOKEN or TG_BOT_TOKEN in GitHub Secrets."
+    )
+
+if not TG_CHAT_ID:
+    raise RuntimeError(
+        "Missing Telegram chat id. Expected TG_CHAT_ID or CHAT_ID in GitHub Secrets."
+    )
 
 # =========================
 # Config
