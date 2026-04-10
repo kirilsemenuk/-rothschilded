@@ -1,9 +1,9 @@
 name: Portfolio Telegram Bot
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 16 * * 1-5"
+    - cron: "0 18 * * 1-5"
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -19,11 +19,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install yfinance matplotlib requests pandas
 
       - name: Run bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          PORTFOLIO_FILE: portfolio.json
-        run: python portfolio_telegram_bot.py
+          PORTFOLIO_JSON: portfolio.json
+        run: python bot.py
