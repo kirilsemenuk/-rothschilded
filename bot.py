@@ -10,7 +10,7 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TG_BOT_TOKEN = os.environ["TG_BOT_TOKEN"]
 TG_CHAT_ID = os.environ["TG_CHAT_ID"]
 PORTFOLIO_FILE = os.environ.get("PORTFOLIO_FILE", "portfolio.json")
 
@@ -26,7 +26,7 @@ def fmt_pct(x: float) -> str:
 
 
 def send_telegram_message(text: str) -> None:
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     resp = requests.post(
         url,
         json={
@@ -40,7 +40,7 @@ def send_telegram_message(text: str) -> None:
 
 
 def send_telegram_photo(photo_bytes: bytes, caption: str = "") -> None:
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
     files = {"photo": ("portfolio.png", photo_bytes, "image/png")}
     data = {
         "chat_id": TG_CHAT_ID,
@@ -49,7 +49,6 @@ def send_telegram_photo(photo_bytes: bytes, caption: str = "") -> None:
     }
     resp = requests.post(url, data=data, files=files, timeout=60)
     resp.raise_for_status()
-
 
 def load_portfolio(file_path: str) -> List[Dict]:
     with open(file_path, "r", encoding="utf-8") as f:
