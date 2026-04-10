@@ -19,12 +19,121 @@ if not TELEGRAM_BOT_TOKEN:
 
 if not TG_CHAT_ID:
     raise RuntimeError("Missing environment variable: TG_CHAT_ID")
-
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 CHIP_TICKERS = {"AMD", "NVDA", "INTC", "AMAT", "TSM", "AVGO", "MU", "QCOM"}
 DAYS_HISTORY = 30
 BENCHMARK_TICKER = "VOO"
 
+
+def build_weekly_insight_fallback(metrics: dict) -> str:
+    weekly_change_pct = metrics["weekly_change_pct"]
+    top_weekly_impact = metrics.get("top_weekly_impact")
+    top_weekly_gainers = metrics.get("top_weekly_gainers", [])
+
+    if not top_weekly_impact:
+        return "🧠 סיכום: השבוע נסגר ללא מניה דומיננטית במיוחד."
+
+    leading_tickers = {x["ticker"] for x in top_weekly_gainers}
+    chip_names = sorted(list(leading_tickers.intersection(CHIP_TICKERS)))
+
+    if weekly_change_pct > 0 and chip_names:
+        return (
+            f"🧠 סיכום: שבוע חזק לתיק עם הובלה של מניות השבבים "
+            f"({', '.join(chip_names)}) ותרומה מרכזית מ-{top_weekly_impact['ticker']}."
+        )
+
+    if weekly_change_pct > 0:
+        return f"🧠 סיכום: שבוע חיובי לתיק, עם תרומה מרכזית מ-{top_weekly_impact['ticker']}."
+
+    if weekly_change_pct < 0:
+        return f"🧠 סיכום: שבוע חלש יותר לתיק, כשהתרומה המרכזית הייתה מ-{top_weekly_impact['ticker']}."
+
+    return "🧠 סיכום: השבוע נסגר כמעט ללא שינוי."
+
+
+def generate_groq_weekly_insight(metrics: dict) -> Optional[str]:
+    if not GROQ_API_KEY:
+        return None
+
+    top_gainers = ", ".join(
+        f"{x['ticker']} {format_percent(x['weekly_pct'])}"
+        for x in metrics.get("top_weekly_gainers", [])
+    ) or "אין"
+
+    top_losers = ", ".join(
+        f"{x['ticker']} {format_percent(x['weekly_pct'])}"
+        for x in metrics.get("top_weekly_losers", [])
+    ) or "אין"
+
+    top_impact = metrics.get("top_weekly_impact")
+    top_impact_text = (
+        f"{top_impact['ticker']} {format_currency(top_impact['weekly_pnl'])}"
+        if top_impact else "אין"
+    )
+
+    benchmark_text = "לא זמין"
+    if metrics.get("benchmark_pct") is not None:
+        benchmark_text = format_percent(metrics["benchmark_pct"])
+
+    user_prompt = f"""
+כתוב תובנת השקעות שבועית קצרה מאוד בעברית.
+מקסימום 1-2 משפטים.
+סגנון: חד, מקצועי, ברור, בלי הגזמות, בלי ייעוץ השקעות.
+תתחיל ב-🧠 סיכום:
+הנתונים:
+- שינוי שבועי בתיק: {format_currency(metrics['weekly_change'])} ({format_percent(metrics['weekly_change_pct'])})
+- רווח כולל: {format_currency(metrics['total_profit'])} ({format_percent(metrics['total_profit_pct'])})
+- שווי תיק: {format_currency_plain(metrics['portfolio_value'])}
+- מול השוק: {benchmark_text}
+- התרומה הגדולה ביותר: {top_impact_text}
+- מובילות השבוע: {top_gainers}
+- חלשות השבוע: {top_losers}
+"""
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "אתה אנליסט פיננסי תמציתי. "
+                    "כתוב בעברית טבעית בלבד. "
+                    "אל תשתמש בבולטים. "
+                    "אל תיתן ייעוץ השקעות. "
+                    "אל תמציא נתונים שלא קיימים בקלט."
+                ),
+            },
+            {
+                "role": "user",
+                "content": user_prompt.strip(),
+            },
+        ],
+        "temperature": 0.4,
+    }
+
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    content = data["choices"][0]["message"]["content"].strip()
+
+    if not content:
+        return None
+
+    if not content.startswith("🧠"):
+        content = f"🧠 סיכום: {content}"
+
+    return content
 
 def safe_float(value, default: float = 0.0) -> float:
     try:
@@ -310,12 +419,14 @@ def calculate_weekly_metrics(snapshot: List[dict], benchmark_pct: Optional[float
 
 
 def build_weekly_insight(metrics: dict) -> str:
-    weekly_change_pct = metrics["weekly_change_pct"]
-    top_weekly_impact = metrics.get("top_weekly_impact")
-    top_weekly_gainers = metrics.get("top_weekly_gainers", [])
+    try:
+        groq_text = generate_groq_weekly_insight(metrics)
+        if groq_text:
+            return groq_text
+    except Exception as e:
+        print(f"GROQ insight failed: {e}")
 
-    if not top_weekly_impact:
-        return "🧠 סיכום: השבוע נסגר ללא מניה דומיננטית במיוחד."
+    return build_weekly_insight_fallback(metrics)
 
     leading_tickers = {x["ticker"] for x in top_weekly_gainers}
     chip_names = sorted(list(leading_tickers.intersection(CHIP_TICKERS)))
