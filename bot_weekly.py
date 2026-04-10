@@ -2,7 +2,7 @@ import os
 import json
 import math
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import requests
@@ -10,9 +10,16 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TG_CHAT_ID = os.environ["TG_CHAT_ID"]
-PORTFOLIO_JSON = os.environ.get("PORTFOLIO_JSON", "portfolio.json")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TG_CHAT_ID = os.getenv("TG_CHAT_ID")
+PORTFOLIO_JSON = os.getenv("PORTFOLIO_JSON", "portfolio.json")
+
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError("Missing environment variable: TELEGRAM_BOT_TOKEN")
+
+if not TG_CHAT_ID:
+    raise RuntimeError("Missing environment variable: TG_CHAT_ID")
+
 
 CHIP_TICKERS = {"AMD", "NVDA", "INTC", "AMAT", "TSM", "AVGO", "MU", "QCOM"}
 DAYS_HISTORY = 30
@@ -226,9 +233,6 @@ def build_positions_snapshot(portfolio: List[dict], prices: Dict[str, dict]) -> 
         total_profit = market_value - cost_basis
         total_profit_pct = (total_profit / cost_basis * 100) if cost_basis else 0.0
 
-        daily_pnl = shares * (current_price - prev_close)
-        daily_pct = ((current_price - prev_close) / prev_close * 100) if prev_close else 0.0
-
         weekly_pnl = shares * (current_price - week_ago_close)
         weekly_pct = ((current_price - week_ago_close) / week_ago_close * 100) if week_ago_close else 0.0
 
@@ -243,8 +247,6 @@ def build_positions_snapshot(portfolio: List[dict], prices: Dict[str, dict]) -> 
             "cost_basis": cost_basis,
             "total_profit": total_profit,
             "total_profit_pct": total_profit_pct,
-            "daily_pnl": daily_pnl,
-            "daily_pct": daily_pct,
             "weekly_pnl": weekly_pnl,
             "weekly_pct": weekly_pct,
         })
@@ -328,7 +330,7 @@ def build_weekly_insight(metrics: dict) -> str:
         return f"🧠 סיכום: שבוע חיובי לתיק, עם תרומה מרכזית מ-{top_weekly_impact['ticker']}."
 
     if weekly_change_pct < 0:
-        return f"🧠 סיכום: שבוע חלש יותר לתיק, כשההשפעה המרכזית הגיעה מ-{top_weekly_impact['ticker']}."
+        return f"🧠 סיכום: שבוע חלש יותר לתיק, כשהתרומה המרכזית הייתה מ-{top_weekly_impact['ticker']}."
 
     return "🧠 סיכום: השבוע נסגר כמעט ללא שינוי."
 
@@ -403,7 +405,7 @@ def build_weekly_summary_message(metrics: dict, high_30d: Optional[float], low_3
     return "\n".join(lines)
 
 
-def build_chart_caption(metrics: dict) -> str:
+def build_chart_caption() -> str:
     return "📈 גרף שווי תיק - 30 ימים אחרונים"
 
 
@@ -429,27 +431,9 @@ def create_portfolio_chart(history: List[dict], cost_basis: float, output_path: 
     plt.scatter(dates[low_idx], low_value, s=60, label="Low")
     plt.scatter(dates[-1], today_value, s=60, label="Today")
 
-    plt.annotate(
-        f"High\n${high_value:,.0f}",
-        (dates[high_idx], high_value),
-        textcoords="offset points",
-        xytext=(0, 10),
-        ha="center",
-    )
-    plt.annotate(
-        f"Low\n${low_value:,.0f}",
-        (dates[low_idx], low_value),
-        textcoords="offset points",
-        xytext=(0, -25),
-        ha="center",
-    )
-    plt.annotate(
-        f"Today\n${today_value:,.0f}",
-        (dates[-1], today_value),
-        textcoords="offset points",
-        xytext=(0, 10),
-        ha="center",
-    )
+    plt.annotate(f"High\n${high_value:,.0f}", (dates[high_idx], high_value), textcoords="offset points", xytext=(0, 10), ha="center")
+    plt.annotate(f"Low\n${low_value:,.0f}", (dates[low_idx], low_value), textcoords="offset points", xytext=(0, -25), ha="center")
+    plt.annotate(f"Today\n${today_value:,.0f}", (dates[-1], today_value), textcoords="offset points", xytext=(0, 10), ha="center")
 
     plt.title("Portfolio Value - Last 30 Days")
     plt.xlabel("Date")
@@ -469,10 +453,7 @@ def fetch_benchmark_weekly_pct(ticker: str = BENCHMARK_TICKER) -> Optional[float
         return None
 
     current_price = safe_float(hist["Close"].iloc[-1])
-    if len(hist) >= 6:
-        week_ago_close = safe_float(hist["Close"].iloc[-6], current_price)
-    else:
-        week_ago_close = safe_float(hist["Close"].iloc[0], current_price)
+    week_ago_close = safe_float(hist["Close"].iloc[-6], current_price) if len(hist) >= 6 else safe_float(hist["Close"].iloc[0], current_price)
 
     if not week_ago_close:
         return None
@@ -482,14 +463,7 @@ def fetch_benchmark_weekly_pct(ticker: str = BENCHMARK_TICKER) -> Optional[float
 
 def send_telegram_message(text: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    response = requests.post(
-        url,
-        data={
-            "chat_id": TG_CHAT_ID,
-            "text": text,
-        },
-        timeout=30,
-    )
+    response = requests.post(url, data={"chat_id": TG_CHAT_ID, "text": text}, timeout=30)
     response.raise_for_status()
 
 
@@ -500,13 +474,7 @@ def send_telegram_photo(photo_path: str, caption: Optional[str] = None):
         data = {"chat_id": TG_CHAT_ID}
         if caption:
             data["caption"] = caption
-
-        response = requests.post(
-            url,
-            data=data,
-            files=files,
-            timeout=60,
-        )
+        response = requests.post(url, data=data, files=files, timeout=60)
         response.raise_for_status()
 
 
@@ -547,13 +515,12 @@ def main():
         high_30d=high_30d,
         low_30d=low_30d,
     )
-    chart_caption = build_chart_caption(weekly_metrics)
 
     print("Sending weekly summary...")
     send_telegram_message(weekly_message)
 
     print("Sending chart...")
-    send_telegram_photo(chart_path, caption=chart_caption)
+    send_telegram_photo(chart_path, caption=build_chart_caption())
 
     print("Done.")
 
