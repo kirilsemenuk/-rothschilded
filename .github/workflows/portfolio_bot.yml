@@ -26,4 +26,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PORTFOLIO_FILE: portfolio.json
-        run: python bot.py
+        run: python portfolio_telegram_bot.py
