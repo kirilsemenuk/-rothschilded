@@ -1,9 +1,9 @@
-name: Weekly Portfolio Summary
+name: Weekly Portfolio Bot
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 19 * * 5"
+    - cron: "0 18 * * 5"
+  workflow_dispatch:
 
 jobs:
   run-weekly-bot:
@@ -13,17 +13,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install yfinance matplotlib requests pandas
 
       - name: Run weekly bot
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          PORTFOLIO_JSON: portfolio.json
         run: python bot_weekly.py
