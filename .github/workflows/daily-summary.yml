@@ -1,7 +1,4 @@
-name: Weekly Portfolio Report
-
-on:
-  schedule:name: Daily Portfolio Summary
+name: Daily Portfolio Summary
 
 on:
   workflow_dispatch:
@@ -29,29 +26,5 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          PORTFOLIO_JSON: ${{ secrets.PORTFOLIO_JSON }}
         run: python bot.py
-    - cron: "55 20 * * *"
-  workflow_dispatch:
-
-jobs:
-  send-report:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run portfolio report
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: python stock_monitor.py
