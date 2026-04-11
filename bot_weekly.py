@@ -8,6 +8,8 @@ from typing import Dict, List, Optional
 import requests
 import yfinance as yf
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.ticker import FuncFormatter
 
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -16,7 +18,6 @@ PORTFOLIO_JSON = os.getenv("PORTFOLIO_JSON", "portfolio.json")
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Missing environment variable: TELEGRAM_BOT_TOKEN")
-
 if not TG_CHAT_ID:
     raise RuntimeError("Missing environment variable: TG_CHAT_ID")
 
@@ -99,10 +100,8 @@ def load_portfolio(path: str) -> List[dict]:
         ticker = str(item["ticker"]).upper().strip()
         shares = safe_float(item["shares"])
         avg_price = safe_float(item["avg_price"])
-
         if not ticker or shares <= 0:
             continue
-
         portfolio.append({
             "ticker": ticker,
             "shares": shares,
@@ -132,23 +131,14 @@ def fetch_prices_and_history(portfolio: List[dict], days: int = 30):
     for item in portfolio:
         ticker = item["ticker"]
         print(f"Fetching {ticker}...")
-
         hist = fetch_ticker_history(ticker, period="3mo")
         if hist.empty:
             print(f"Warning: no data for {ticker}")
             continue
 
         current_price = safe_float(hist["Close"].iloc[-1])
-        prev_close = current_price
-        week_ago_close = current_price
-
-        if len(hist) >= 2:
-            prev_close = safe_float(hist["Close"].iloc[-2], current_price)
-
-        if len(hist) >= 6:
-            week_ago_close = safe_float(hist["Close"].iloc[-6], current_price)
-        else:
-            week_ago_close = safe_float(hist["Close"].iloc[0], current_price)
+        prev_close = safe_float(hist["Close"].iloc[-2], current_price) if len(hist) >= 2 else current_price
+        week_ago_close = safe_float(hist["Close"].iloc[-6], current_price) if len(hist) >= 6 else safe_float(hist["Close"].iloc[0], current_price)
 
         prices[ticker] = {
             "price": current_price,
@@ -171,36 +161,25 @@ def build_portfolio_history(portfolio: List[dict], prices: Dict[str, dict], days
         ticker = item["ticker"]
         if ticker not in prices:
             continue
-
         hist = prices[ticker]["hist"]
         ticker_dates = set(d.date() for d in hist.index)
-
-        if common_dates is None:
-            common_dates = ticker_dates
-        else:
-            common_dates = common_dates.intersection(ticker_dates)
+        common_dates = ticker_dates if common_dates is None else common_dates.intersection(ticker_dates)
 
     if not common_dates:
         return []
 
-    common_dates = sorted(common_dates)[-days:]
     history = []
-
-    for date_only in common_dates:
+    for date_only in sorted(common_dates)[-days:]:
         total_value = 0.0
-
         for item in portfolio:
             ticker = item["ticker"]
             shares = item["shares"]
-
             if ticker not in prices:
                 continue
-
             hist = prices[ticker]["hist"]
             same_day = hist[hist.index.date == date_only]
             if same_day.empty:
                 continue
-
             close_price = safe_float(same_day["Close"].iloc[-1])
             total_value += shares * close_price
 
@@ -219,7 +198,6 @@ def build_positions_snapshot(portfolio: List[dict], prices: Dict[str, dict]) -> 
         ticker = item["ticker"]
         shares = item["shares"]
         avg_price = item["avg_price"]
-
         if ticker not in prices:
             continue
 
@@ -229,10 +207,8 @@ def build_positions_snapshot(portfolio: List[dict], prices: Dict[str, dict]) -> 
 
         market_value = shares * current_price
         cost_basis = shares * avg_price
-
         total_profit = market_value - cost_basis
         total_profit_pct = (total_profit / cost_basis * 100) if cost_basis else 0.0
-
         weekly_pnl = shares * (current_price - week_ago_close)
         weekly_pct = ((current_price - week_ago_close) / week_ago_close * 100) if week_ago_close else 0.0
 
@@ -260,38 +236,30 @@ def build_positions_snapshot(portfolio: List[dict], prices: Dict[str, dict]) -> 
 def build_weekly_score(metrics: dict) -> float:
     score = 5.0
     score += min(max(metrics["weekly_change_pct"] * 0.8, -3.0), 3.0)
-
     breadth = metrics["weekly_gainers_count"] - metrics["weekly_losers_count"]
     score += min(max(breadth * 0.2, -2.0), 2.0)
-
     if metrics.get("top_weekly_gainer") and metrics["top_weekly_gainer"]["weekly_pct"] >= 8:
         score += 0.8
-
     return round(min(max(score, 0.0), 10.0), 1)
 
 
 def generate_ai_alerts(snapshot: List[dict], metrics: dict) -> List[str]:
     alerts = []
     total_value = metrics["portfolio_value"]
-
     if not snapshot or total_value <= 0:
         return alerts
 
     for pos in snapshot:
         weight = pos["market_value"] / total_value
         if weight >= 0.35:
-            alerts.append(
-                f"⚠️ ריכוזיות גבוהה: {pos['ticker']} מהווה {weight * 100:.1f}% מהתיק"
-            )
+            alerts.append(f"⚠️ ריכוזיות גבוהה: {pos['ticker']} מהווה {weight * 100:.1f}% מהתיק")
 
     top_weekly_impact = metrics.get("top_weekly_impact")
     weekly_change = metrics.get("weekly_change", 0.0)
     if top_weekly_impact and abs(weekly_change) > 0:
         impact_ratio = abs(top_weekly_impact["weekly_pnl"]) / abs(weekly_change)
         if impact_ratio >= 0.5:
-            alerts.append(
-                f"📊 תלות גבוהה: {top_weekly_impact['ticker']} אחראית לחלק גדול מהתנועה השבועית"
-            )
+            alerts.append(f"📊 תלות גבוהה: {top_weekly_impact['ticker']} אחראית לחלק גדול מהתנועה השבועית")
 
     benchmark_pct = metrics.get("benchmark_pct")
     weekly_change_pct = metrics.get("weekly_change_pct", 0.0)
@@ -322,7 +290,6 @@ def calculate_weekly_metrics(snapshot: List[dict], benchmark_pct: Optional[float
     cost_basis = sum(x["cost_basis"] for x in snapshot)
     total_profit = portfolio_value - cost_basis
     total_profit_pct = (total_profit / cost_basis * 100) if cost_basis else 0.0
-
     weekly_change = sum(x["weekly_pnl"] for x in snapshot)
     prev_week_value = sum(x["shares"] * x["week_ago_close"] for x in snapshot)
     weekly_change_pct = (weekly_change / prev_week_value * 100) if prev_week_value else 0.0
@@ -352,7 +319,6 @@ def calculate_weekly_metrics(snapshot: List[dict], benchmark_pct: Optional[float
         "benchmark_pct": benchmark_pct,
         "snapshot": snapshot,
     }
-
     metrics["weekly_score"] = build_weekly_score(metrics)
     metrics["ai_alerts"] = generate_ai_alerts(snapshot, metrics)
     return metrics
@@ -371,13 +337,10 @@ def build_weekly_insight(metrics: dict) -> str:
 
     if weekly_change_pct > 0 and chip_names:
         return f"🧠 סיכום: מניות השבבים הובילו את השבוע, עם תרומה מרכזית מ-{top_weekly_impact['ticker']}."
-
     if weekly_change_pct > 0:
         return f"🧠 סיכום: שבוע חיובי לתיק, עם תרומה מרכזית מ-{top_weekly_impact['ticker']}."
-
     if weekly_change_pct < 0:
         return f"🧠 סיכום: שבוע חלש יותר לתיק, כשההשפעה המרכזית הייתה מ-{top_weekly_impact['ticker']}."
-
     return "🧠 סיכום: השבוע נסגר כמעט ללא שינוי."
 
 
@@ -389,10 +352,7 @@ def build_weekly_summary_message(metrics: dict, high_30d: Optional[float], low_3
 
     top_impact_line = "—"
     if metrics.get("top_weekly_impact"):
-        top_impact_line = (
-            f"• {metrics['top_weekly_impact']['ticker']} "
-            f"{format_currency(metrics['top_weekly_impact']['weekly_pnl'])}"
-        )
+        top_impact_line = f"• {metrics['top_weekly_impact']['ticker']} {format_currency(metrics['top_weekly_impact']['weekly_pnl'])}"
 
     market_block = []
     if metrics.get("benchmark_name") and metrics.get("benchmark_pct") is not None:
@@ -460,7 +420,7 @@ def build_weekly_summary_message(metrics: dict, high_30d: Optional[float], low_3
 
 
 def build_chart_caption() -> str:
-    return "📈 גרף שווי תיק - 30 ימים אחרונים"
+    return "📈 Portfolio Performance | Last 30 Days"
 
 
 def create_portfolio_chart(history: List[dict], cost_basis: float, output_path: str = "portfolio_weekly_chart.png"):
@@ -469,33 +429,90 @@ def create_portfolio_chart(history: List[dict], cost_basis: float, output_path: 
 
     dates = [item["date"] for item in history]
     values = [item["value"] for item in history]
-
     high_value = max(values)
     low_value = min(values)
     high_idx = values.index(high_value)
     low_idx = values.index(low_value)
     today_value = values[-1]
 
-    plt.figure(figsize=(12, 6))
-    plt.plot(dates, values, linewidth=2, label="Portfolio Value")
-    plt.fill_between(dates, values, alpha=0.15)
-    plt.axhline(cost_basis, linestyle="--", linewidth=1.2, label="Cost Basis")
+    pnl_value = today_value - cost_basis
+    pnl_pct = (pnl_value / cost_basis * 100) if cost_basis else 0.0
 
-    plt.scatter(dates[high_idx], high_value, s=60, label="High")
-    plt.scatter(dates[low_idx], low_value, s=60, label="Low")
-    plt.scatter(dates[-1], today_value, s=60, label="היום")
+    fig, ax = plt.subplots(figsize=(13, 7))
 
-    plt.annotate(f"High\n${high_value:,.0f}", (dates[high_idx], high_value), textcoords="offset points", xytext=(0, 10), ha="center")
-    plt.annotate(f"Low\n${low_value:,.0f}", (dates[low_idx], low_value), textcoords="offset points", xytext=(0, -25), ha="center")
-    plt.annotate(f"היום\n${today_value:,.0f}", (dates[-1], today_value), textcoords="offset points", xytext=(0, 10), ha="center")
+    above_cost = [v if v >= cost_basis else float("nan") for v in values]
+    below_cost = [v if v < cost_basis else float("nan") for v in values]
 
-    plt.title("Portfolio Value - Last 30 Days")
-    plt.xlabel("Date")
-    plt.ylabel("Value ($)")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    ax.plot(dates, values, linewidth=3.0, label="Portfolio Value")
+    ax.plot(dates, above_cost, linewidth=3.2)
+    ax.plot(dates, below_cost, linewidth=3.2)
+
+    ax.fill_between(dates, values, cost_basis, where=[v >= cost_basis for v in values], alpha=0.18, interpolate=True)
+    ax.fill_between(dates, values, cost_basis, where=[v < cost_basis for v in values], alpha=0.10, interpolate=True)
+    ax.axhline(cost_basis, linestyle="--", linewidth=1.5, alpha=0.9, label="Cost Basis")
+
+    ax.scatter(dates[high_idx], high_value, s=95, zorder=5, label="High")
+    ax.scatter(dates[low_idx], low_value, s=95, zorder=5, label="Low")
+    ax.scatter(dates[-1], today_value, s=110, zorder=6, label="Today")
+
+    ax.annotate(
+        f"High\n${high_value:,.0f}",
+        (dates[high_idx], high_value),
+        textcoords="offset points",
+        xytext=(0, 12),
+        ha="center",
+        fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.3", alpha=0.15),
+    )
+    ax.annotate(
+        f"Low\n${low_value:,.0f}",
+        (dates[low_idx], low_value),
+        textcoords="offset points",
+        xytext=(0, -38),
+        ha="center",
+        fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.3", alpha=0.15),
+    )
+    ax.annotate(
+        f"היום\n${today_value:,.0f}",
+        (dates[-1], today_value),
+        textcoords="offset points",
+        xytext=(0, 12),
+        ha="center",
+        fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.3", alpha=0.15),
+    )
+
+    summary_text = (
+        f"Current Value: ${today_value:,.2f}\n"
+        f"P&L: {'+' if pnl_value > 0 else ''}${pnl_value:,.2f}\n"
+        f"Return: {'+' if pnl_pct > 0 else ''}{pnl_pct:.2f}%"
+    )
+    ax.text(
+        0.02,
+        0.98,
+        summary_text,
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.5", alpha=0.12),
+    )
+
+    ax.set_title("Portfolio Performance — Last 30 Days", fontsize=16, pad=18)
+    ax.set_xlabel("Date", fontsize=11)
+    ax.set_ylabel("Portfolio Value ($)", fontsize=11)
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"${x:,.0f}"))
+    ax.grid(True, alpha=0.25, linestyle="--")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.legend(frameon=False, loc="lower right")
+
+    plt.xticks(rotation=0)
     plt.tight_layout()
-    plt.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close()
 
     return output_path, high_value, low_value
@@ -505,13 +522,10 @@ def fetch_benchmark_weekly_pct(ticker: str = BENCHMARK_TICKER) -> Optional[float
     hist = fetch_ticker_history(ticker, period="10d")
     if hist.empty:
         return None
-
     current_price = safe_float(hist["Close"].iloc[-1])
     week_ago_close = safe_float(hist["Close"].iloc[-6], current_price) if len(hist) >= 6 else safe_float(hist["Close"].iloc[0], current_price)
-
     if not week_ago_close:
         return None
-
     return ((current_price - week_ago_close) / week_ago_close) * 100
 
 
