@@ -19,121 +19,12 @@ if not TELEGRAM_BOT_TOKEN:
 
 if not TG_CHAT_ID:
     raise RuntimeError("Missing environment variable: TG_CHAT_ID")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
 
 CHIP_TICKERS = {"AMD", "NVDA", "INTC", "AMAT", "TSM", "AVGO", "MU", "QCOM"}
 DAYS_HISTORY = 30
 BENCHMARK_TICKER = "VOO"
 
-
-def build_weekly_insight_fallback(metrics: dict) -> str:
-    weekly_change_pct = metrics["weekly_change_pct"]
-    top_weekly_impact = metrics.get("top_weekly_impact")
-    top_weekly_gainers = metrics.get("top_weekly_gainers", [])
-
-    if not top_weekly_impact:
-        return "🧠 סיכום: השבוע נסגר ללא מניה דומיננטית במיוחד."
-
-    leading_tickers = {x["ticker"] for x in top_weekly_gainers}
-    chip_names = sorted(list(leading_tickers.intersection(CHIP_TICKERS)))
-
-    if weekly_change_pct > 0 and chip_names:
-        return (
-            f"🧠 סיכום: שבוע חזק לתיק עם הובלה של מניות השבבים "
-            f"({', '.join(chip_names)}) ותרומה מרכזית מ-{top_weekly_impact['ticker']}."
-        )
-
-    if weekly_change_pct > 0:
-        return f"🧠 סיכום: שבוע חיובי לתיק, עם תרומה מרכזית מ-{top_weekly_impact['ticker']}."
-
-    if weekly_change_pct < 0:
-        return f"🧠 סיכום: שבוע חלש יותר לתיק, כשהתרומה המרכזית הייתה מ-{top_weekly_impact['ticker']}."
-
-    return "🧠 סיכום: השבוע נסגר כמעט ללא שינוי."
-
-
-def generate_groq_weekly_insight(metrics: dict) -> Optional[str]:
-    if not GROQ_API_KEY:
-        return None
-
-    top_gainers = ", ".join(
-        f"{x['ticker']} {format_percent(x['weekly_pct'])}"
-        for x in metrics.get("top_weekly_gainers", [])
-    ) or "אין"
-
-    top_losers = ", ".join(
-        f"{x['ticker']} {format_percent(x['weekly_pct'])}"
-        for x in metrics.get("top_weekly_losers", [])
-    ) or "אין"
-
-    top_impact = metrics.get("top_weekly_impact")
-    top_impact_text = (
-        f"{top_impact['ticker']} {format_currency(top_impact['weekly_pnl'])}"
-        if top_impact else "אין"
-    )
-
-    benchmark_text = "לא זמין"
-    if metrics.get("benchmark_pct") is not None:
-        benchmark_text = format_percent(metrics["benchmark_pct"])
-
-    user_prompt = f"""
-כתוב תובנת השקעות שבועית קצרה מאוד בעברית.
-מקסימום 1-2 משפטים.
-סגנון: חד, מקצועי, ברור, בלי הגזמות, בלי ייעוץ השקעות.
-תתחיל ב-🧠 סיכום:
-הנתונים:
-- שינוי שבועי בתיק: {format_currency(metrics['weekly_change'])} ({format_percent(metrics['weekly_change_pct'])})
-- רווח כולל: {format_currency(metrics['total_profit'])} ({format_percent(metrics['total_profit_pct'])})
-- שווי תיק: {format_currency_plain(metrics['portfolio_value'])}
-- מול השוק: {benchmark_text}
-- התרומה הגדולה ביותר: {top_impact_text}
-- מובילות השבוע: {top_gainers}
-- חלשות השבוע: {top_losers}
-"""
-
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "אתה אנליסט פיננסי תמציתי. "
-                    "כתוב בעברית טבעית בלבד. "
-                    "אל תשתמש בבולטים. "
-                    "אל תיתן ייעוץ השקעות. "
-                    "אל תמציא נתונים שלא קיימים בקלט."
-                ),
-            },
-            {
-                "role": "user",
-                "content": user_prompt.strip(),
-            },
-        ],
-        "temperature": 0.4,
-    }
-
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=30,
-    )
-    response.raise_for_status()
-
-    data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
-
-    if not content:
-        return None
-
-    if not content.startswith("🧠"):
-        content = f"🧠 סיכום: {content}"
-
-    return content
 
 def safe_float(value, default: float = 0.0) -> float:
     try:
@@ -190,10 +81,10 @@ def get_trend_text(weekly_change_pct: float) -> str:
     if weekly_change_pct > 3:
         return "🚀 מגמה: Strong Uptrend"
     if weekly_change_pct > 1:
-        return "📈 מגמה: Uptrend"
+        return "🟢 מגמה: Uptrend"
     if weekly_change_pct > -1:
-        return "➖ מגמה: Sideways"
-    return "📉 מגמה: Downtrend"
+        return "⚪️ מגמה: Sideways"
+    return "🔴 מגמה: Downtrend"
 
 
 def load_portfolio(path: str) -> List[dict]:
@@ -379,6 +270,53 @@ def build_weekly_score(metrics: dict) -> float:
     return round(min(max(score, 0.0), 10.0), 1)
 
 
+def generate_ai_alerts(snapshot: List[dict], metrics: dict) -> List[str]:
+    alerts = []
+    total_value = metrics["portfolio_value"]
+
+    if not snapshot or total_value <= 0:
+        return alerts
+
+    for pos in snapshot:
+        weight = pos["market_value"] / total_value
+        if weight >= 0.35:
+            alerts.append(
+                f"⚠️ ריכוזיות גבוהה: {pos['ticker']} מהווה {weight * 100:.1f}% מהתיק"
+            )
+
+    top_weekly_impact = metrics.get("top_weekly_impact")
+    weekly_change = metrics.get("weekly_change", 0.0)
+    if top_weekly_impact and abs(weekly_change) > 0:
+        impact_ratio = abs(top_weekly_impact["weekly_pnl"]) / abs(weekly_change)
+        if impact_ratio >= 0.5:
+            alerts.append(
+                f"📊 תלות גבוהה: {top_weekly_impact['ticker']} אחראית לחלק גדול מהתנועה השבועית"
+            )
+
+    benchmark_pct = metrics.get("benchmark_pct")
+    weekly_change_pct = metrics.get("weekly_change_pct", 0.0)
+    if benchmark_pct is not None:
+        diff = weekly_change_pct - benchmark_pct
+        if diff >= 1.0:
+            alerts.append(f"🥇 ביצועי יתר: ניצחת את השוק ב-{diff:.2f}%")
+        elif diff <= -1.0:
+            alerts.append(f"📉 ביצועי חסר: פיגרת אחרי השוק ב-{abs(diff):.2f}%")
+
+    strong_gainers = [x for x in snapshot if x.get("weekly_pct", 0.0) >= 10]
+    if len(strong_gainers) >= 2:
+        alerts.append("🚀 מומנטום חזק: כמה מניות בתיק עלו ביותר מ-10% השבוע")
+
+    worst = min(snapshot, key=lambda x: x.get("weekly_pct", 0.0), default=None)
+    if worst and worst.get("weekly_pct", 0.0) <= -10:
+        alerts.append(f"⚠️ חולשה בולטת: {worst['ticker']} ירדה {worst['weekly_pct']:.2f}% השבוע")
+
+    max_weight = max((pos["market_value"] / total_value) for pos in snapshot)
+    if max_weight < 0.25:
+        alerts.append("✅ פיזור טוב: אין מניה דומיננטית מדי בתיק")
+
+    return alerts
+
+
 def calculate_weekly_metrics(snapshot: List[dict], benchmark_pct: Optional[float] = None) -> dict:
     portfolio_value = sum(x["market_value"] for x in snapshot)
     cost_basis = sum(x["cost_basis"] for x in snapshot)
@@ -412,36 +350,33 @@ def calculate_weekly_metrics(snapshot: List[dict], benchmark_pct: Optional[float
         "top_weekly_losers": sorted(weekly_losers, key=lambda x: x["weekly_pct"])[:3],
         "benchmark_name": BENCHMARK_TICKER if benchmark_pct is not None else None,
         "benchmark_pct": benchmark_pct,
+        "snapshot": snapshot,
     }
 
     metrics["weekly_score"] = build_weekly_score(metrics)
+    metrics["ai_alerts"] = generate_ai_alerts(snapshot, metrics)
     return metrics
 
 
 def build_weekly_insight(metrics: dict) -> str:
-    try:
-        groq_text = generate_groq_weekly_insight(metrics)
-        if groq_text:
-            return groq_text
-    except Exception as e:
-        print(f"GROQ insight failed: {e}")
+    weekly_change_pct = metrics["weekly_change_pct"]
+    top_weekly_impact = metrics.get("top_weekly_impact")
+    top_weekly_gainers = metrics.get("top_weekly_gainers", [])
 
-    return build_weekly_insight_fallback(metrics)
+    if not top_weekly_impact:
+        return "🧠 סיכום: השבוע נסגר ללא מניה דומיננטית במיוחד."
 
     leading_tickers = {x["ticker"] for x in top_weekly_gainers}
     chip_names = sorted(list(leading_tickers.intersection(CHIP_TICKERS)))
 
     if weekly_change_pct > 0 and chip_names:
-        return (
-            f"🧠 סיכום: שבוע חזק לתיק עם הובלה של מניות השבבים "
-            f"({', '.join(chip_names)}) ותרומה מרכזית מ-{top_weekly_impact['ticker']}."
-        )
+        return f"🧠 סיכום: מניות השבבים הובילו את השבוע, עם תרומה מרכזית מ-{top_weekly_impact['ticker']}."
 
     if weekly_change_pct > 0:
         return f"🧠 סיכום: שבוע חיובי לתיק, עם תרומה מרכזית מ-{top_weekly_impact['ticker']}."
 
     if weekly_change_pct < 0:
-        return f"🧠 סיכום: שבוע חלש יותר לתיק, כשהתרומה המרכזית הייתה מ-{top_weekly_impact['ticker']}."
+        return f"🧠 סיכום: שבוע חלש יותר לתיק, כשההשפעה המרכזית הייתה מ-{top_weekly_impact['ticker']}."
 
     return "🧠 סיכום: השבוע נסגר כמעט ללא שינוי."
 
@@ -450,11 +385,12 @@ def build_weekly_summary_message(metrics: dict, high_30d: Optional[float], low_3
     score_str = format_score(metrics["weekly_score"])
     trend_line = get_trend_text(metrics["weekly_change_pct"])
     insight = build_weekly_insight(metrics)
+    ai_alerts = metrics.get("ai_alerts", [])
 
     top_impact_line = "—"
     if metrics.get("top_weekly_impact"):
         top_impact_line = (
-            f"{metrics['top_weekly_impact']['ticker']} "
+            f"• {metrics['top_weekly_impact']['ticker']} "
             f"{format_currency(metrics['top_weekly_impact']['weekly_pnl'])}"
         )
 
@@ -462,9 +398,9 @@ def build_weekly_summary_message(metrics: dict, high_30d: Optional[float], low_3
     if metrics.get("benchmark_name") and metrics.get("benchmark_pct") is not None:
         market_block = [
             f"📊 מול השוק ({metrics['benchmark_name']}):",
-            f"אתה: {format_percent(metrics['weekly_change_pct'])}",
-            f"השוק: {format_percent(metrics['benchmark_pct'])}",
-            f"יתרון: {format_percent(metrics['weekly_change_pct'] - metrics['benchmark_pct'])}",
+            f"• אתה: {format_percent(metrics['weekly_change_pct'])}",
+            f"• השוק: {format_percent(metrics['benchmark_pct'])}",
+            f"• יתרון: {format_percent(metrics['weekly_change_pct'] - metrics['benchmark_pct'])}",
             "",
         ]
 
@@ -505,12 +441,19 @@ def build_weekly_summary_message(metrics: dict, high_30d: Optional[float], low_3
         insight,
     ]
 
+    if ai_alerts:
+        lines.extend([
+            "",
+            "🤖 תובנות חכמות:",
+            *[f"• {alert}" for alert in ai_alerts],
+        ])
+
     if high_30d is not None or low_30d is not None:
         lines.extend([
             "",
             "📍 טווח 30 יום:",
-            f"🔺 שיא: {format_currency_plain(high_30d) if high_30d is not None else '—'}",
-            f"🔻 שפל: {format_currency_plain(low_30d) if low_30d is not None else '—'}",
+            f"• 🔺 שיא: {format_currency_plain(high_30d) if high_30d is not None else '—'}",
+            f"• 🔻 שפל: {format_currency_plain(low_30d) if low_30d is not None else '—'}",
         ])
 
     return "\n".join(lines)
@@ -540,11 +483,11 @@ def create_portfolio_chart(history: List[dict], cost_basis: float, output_path: 
 
     plt.scatter(dates[high_idx], high_value, s=60, label="High")
     plt.scatter(dates[low_idx], low_value, s=60, label="Low")
-    plt.scatter(dates[-1], today_value, s=60, label="Today")
+    plt.scatter(dates[-1], today_value, s=60, label="היום")
 
     plt.annotate(f"High\n${high_value:,.0f}", (dates[high_idx], high_value), textcoords="offset points", xytext=(0, 10), ha="center")
     plt.annotate(f"Low\n${low_value:,.0f}", (dates[low_idx], low_value), textcoords="offset points", xytext=(0, -25), ha="center")
-    plt.annotate(f"Today\n${today_value:,.0f}", (dates[-1], today_value), textcoords="offset points", xytext=(0, 10), ha="center")
+    plt.annotate(f"היום\n${today_value:,.0f}", (dates[-1], today_value), textcoords="offset points", xytext=(0, 10), ha="center")
 
     plt.title("Portfolio Value - Last 30 Days")
     plt.xlabel("Date")
