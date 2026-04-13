@@ -4,7 +4,7 @@
     {"ticker": "AMAT", "shares": 1, "avg_price": 162.14},
     {"ticker": "IBIT", "shares": 0.5168, "avg_price": 38.70},
     {"ticker": "INTC", "shares": 1, "avg_price": 19.66},
-    {"ticker": "NVO", "shares": 3, "avg_price": 55.71},
+    {"ticker": "NVO", "shares": 7, "avg_price": 55.71},
     {"ticker": "EWY", "shares": 1, "avg_price": 121.67},
     {"ticker": "RGTI", "shares": 10, "avg_price": 7.74},
     {"ticker": "TD", "shares": 2, "avg_price": 82.83},
