@@ -37,5 +37,3 @@ A Python automation project that generates weekly portfolio summaries and sends 
 - GitHub Actions
 - Telegram Bot API
 
-## Why this project is good for interviews
-It demonstrates practical Python development, API integration, automation, data transformation, visualization, and product thinking in one compact project.
