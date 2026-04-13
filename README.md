@@ -1,39 +1,21 @@
-# -rothschilded
-Weekly portfolio tracker with Telegram alerts
-# Portfolio Telegram Bot
+# RothschildEd – Educational Management System
 
-A Python automation project that generates weekly portfolio summaries and sends them to Telegram.
+## Overview
+A desktop application developed in C#/.NET for managing educational data and user interactions.
 
-## What it does
-- Loads holdings from `portfolio.json`
-- Pulls market data with `yfinance`
-- Calculates portfolio value, total P&L, and weekly change
-- Compares performance against `VOO`
-- Builds a 30-day portfolio chart
-- Generates AI-style alerts for concentration, momentum, weakness, and benchmark performance
-- Sends a formatted summary plus chart to Telegram
+## Features
+- User-friendly GUI
+- Data management and processing
+- Structured application logic using OOP
 
-## Main file
-- `bot_weekly.py`
+## Technologies
+- C#
+- .NET
+- Windows Forms / WPF (מה שאתה משתמש)
 
-## Required environment variables
-- `TELEGRAM_BOT_TOKEN`
-- `TG_CHAT_ID`
-- `PORTFOLIO_JSON` (optional, defaults to `portfolio.json`)
+## My Contribution
+Developed the full application including UI, logic, and debugging.
 
-## Example workflow
-1. Read `portfolio.json`
-2. Fetch historical prices
-3. Build weekly metrics
-4. Generate summary text and alerts
-5. Create chart image
-6. Send everything to Telegram
-
-## Tech stack
-- Python
-- yfinance
-- requests
-- matplotlib
-- GitHub Actions
-- Telegram Bot API
-
+## Future Improvements
+- Database integration
+- Advanced user authentication
