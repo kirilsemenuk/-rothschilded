@@ -43,5 +43,5 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PORTFOLIO_JSON: portfolio.json
-          REPORT_MODE: ${{ github.event.inputs.report_mode || 'daily' }}
+          REPORT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.report_mode || (github.event.schedule == '0 18 * * 5' && 'weekly' || 'daily') }}
         run: python main.py
