@@ -116,6 +116,21 @@ The workflow creates `portfolio.json` from a GitHub Secret and runs the bot auto
 - Data visualization
 
 ---
+## 🖥️ Example Output
+
+### 📅 Daily Report
+
+![Daily Report](daily-report.png)
+
+The bot sends a detailed daily summary including:
+
+* Portfolio value and total P&L
+* Daily performance and percentage change
+* Top gainers and losers
+* Market breadth analysis
+* Smart insights based on portfolio behavior
+* 30-day performance chart
+
 
 ## Author
 
