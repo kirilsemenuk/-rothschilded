@@ -1,0 +1,6 @@
+portfolio.json
+config.json
+.env
+__pycache__/
+*.png
+*.log

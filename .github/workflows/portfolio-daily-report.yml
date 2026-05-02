@@ -1,4 +1,4 @@
-name: Portfolio Telegram Bot
+name: Portfolio Report Workflow
 
 on:
   schedule:
@@ -19,11 +19,15 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install yfinance matplotlib requests pandas
+        run: pip install -r requirements.txt
 
-      - name: Run bot
+    
+      - name: Create portfolio.json
+        run: echo '${{ secrets.PORTFOLIO_JSON_DATA }}' > portfolio.json
+
+      - name: Run portfolio bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PORTFOLIO_JSON: portfolio.json
-        run: python portfolio_telegram_bot.py
+        run: python main.py

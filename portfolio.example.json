@@ -1,0 +1,12 @@
+[
+  {
+    "ticker": "AMD",
+    "shares": 10,
+    "avg_price": 120
+  },
+  {
+    "ticker": "NVDA",
+    "shares": 5,
+    "avg_price": 450
+  }
+]
