@@ -1,16 +1,30 @@
-name: Portfolio Report Workflow
+name: Portfolio Analytics Pipeline
 
 on:
   schedule:
-    - cron: "0 18 * * 1-5"
+    # Daily report — Sunday to Thursday at 18:00 UTC
+    - cron: "0 18 * * 0-4"
+
+    # Weekly report — Friday at 18:00 UTC
+    - cron: "0 18 * * 5"
+
   workflow_dispatch:
+    inputs:
+      report_mode:
+        description: "Report mode"
+        required: true
+        default: "daily"
+        type: choice
+        options:
+          - daily
+          - weekly
 
 jobs:
-  run-bot:
+  portfolio-report:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -21,8 +35,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-    
-      - name: Create portfolio.json
+      - name: Create portfolio.json from secret
         run: echo '${{ secrets.PORTFOLIO_JSON_DATA }}' > portfolio.json
 
       - name: Run portfolio bot
@@ -30,4 +43,5 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PORTFOLIO_JSON: portfolio.json
+          REPORT_MODE: ${{ github.event.inputs.report_mode || (github.event.schedule == '0 18 * * 5' && 'weekly' || 'daily') }}
         run: python main.py
