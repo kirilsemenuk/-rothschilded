@@ -1,138 +1,123 @@
-# Portfolio Telegram Bot
+# 📊 Portfolio Analytics Telegram Bot
 
-Automated portfolio tracking bot that analyzes stock performance and sends portfolio summaries to Telegram.
-
----
-
-## Overview
-
-This project tracks a stock portfolio using market data from Yahoo Finance, calculates portfolio performance, generates charts, and sends automated updates to Telegram.
-
-The project is structured as a production-style Python application with separated modules for data fetching, portfolio calculations, report generation, and Telegram delivery.
+Automated portfolio analytics system that tracks stock performance and sends daily and weekly reports via Telegram.
 
 ---
 
-## Features
+## 🚀 Overview
 
-- Fetches stock market data using `yfinance`
-- Calculates portfolio value, daily change, profit/loss, and percentage returns
-- Generates portfolio performance chart with Matplotlib
-- Sends Telegram message and chart automatically
-- Supports scheduled execution using GitHub Actions
-- Handles runtime errors and sends error notifications to Telegram
-- Keeps sensitive portfolio data outside the repository
+This project implements an end-to-end portfolio monitoring pipeline:
+
+* Retrieves real-time market data using financial APIs
+* Calculates portfolio performance (P&L, daily/weekly changes)
+* Generates visual reports (charts)
+* Sends automated summaries via Telegram
+* Runs on scheduled workflows using GitHub Actions
 
 ---
 
-## Project Structure
+## 🧠 Why This Project Matters
 
-```text
-portfolio-telegram-bot/
-├── main.py
-├── config.py
-├── data_fetcher.py
-├── portfolio_loader.py
-├── portfolio_service.py
-├── report_generator.py
-├── telegram_client.py
-├── utils.py
-├── portfolio.example.json
-├── requirements.txt
-├── README.md
-└── .github/
-    └── workflows/
-        └── portfolio-daily-report.yml
+This project demonstrates real-world engineering skills relevant to system validation and automation:
+
+* Building automated pipelines
+* Designing modular systems
+* Working with APIs and external data sources
+* Debugging and validating system behavior
+* Using AI-assisted tools to accelerate development
+
+---
+
+## 🏗️ System Architecture
+
+```
+Portfolio JSON
+      ↓
+Data Fetcher (APIs)
+      ↓
+Portfolio Service (Calculations)
+      ↓
+Report Generator (Charts + Summary)
+      ↓
+Telegram Client (Delivery)
+      ↓
+GitHub Actions (Automation)
 ```
 
 ---
 
-## Required Secrets
+## 🔧 Key Features
 
-Add these repository secrets in GitHub:
-
-```text
-TELEGRAM_BOT_TOKEN
-TG_CHAT_ID
-PORTFOLIO_JSON_DATA
-```
-
----
-
-## Portfolio Example
-
-Create a local `portfolio.json` file based on `portfolio.example.json`:
-
-```json
-[
-  {
-    "ticker": "AMD",
-    "shares": 10,
-    "avg_price": 120
-  }
-]
-```
+* Automated daily & weekly reporting
+* Portfolio performance analytics (P&L, trends)
+* Data visualization (Matplotlib charts)
+* Telegram bot integration
+* GitHub Actions automation
+* Modular architecture for scalability
 
 ---
 
-## How to Run Locally
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Set environment variables:
-
-```bash
-set TELEGRAM_BOT_TOKEN=your_token
-set TG_CHAT_ID=your_chat_id
-set PORTFOLIO_JSON=portfolio.json
-```
-
-Run:
-
-```bash
-python main.py
-```
-
----
-
-## GitHub Actions
-
-The workflow creates `portfolio.json` from a GitHub Secret and runs the bot automatically.
-
----
-
-## Key Engineering Concepts
-
-- API integration
-- Financial data processing
-- Automation workflows
-- Error handling
-- Modular Python architecture
-- Scheduled execution
-- Telegram Bot integration
-- Data visualization
-
----
 ## 🖥️ Example Output
 
 ### 📅 Daily Report
 
 ![Daily Report](daily-report.png)
 
-The bot sends a detailed daily summary including:
+The bot sends:
 
 * Portfolio value and total P&L
-* Daily performance and percentage change
+* Daily performance
 * Top gainers and losers
-* Market breadth analysis
-* Smart insights based on portfolio behavior
 * 30-day performance chart
 
+---
 
-## Author
+## ▶️ How to Run Locally
 
-Kiril Semeneuk  
-GitHub: https://github.com/kirilsemenuk
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+Set environment variables:
+
+```bash
+TELEGRAM_BOT_TOKEN=your_token
+TG_CHAT_ID=your_chat_id
+PORTFOLIO_JSON=portfolio.json
+REPORT_MODE=daily
+```
+
+---
+
+## ⚙️ Automation (GitHub Actions)
+
+The system runs automatically:
+
+* Daily reports (weekdays)
+* Weekly summary
+
+Secrets used:
+
+* TELEGRAM_BOT_TOKEN
+* TG_CHAT_ID
+* PORTFOLIO_JSON_DATA
+
+---
+
+## 🛠️ Technologies Used
+
+* Python
+* APIs (Yahoo Finance)
+* Matplotlib
+* GitHub Actions
+* Telegram Bot API
+
+---
+
+## 📈 Future Improvements
+
+* Advanced analytics (risk, diversification)
+* PDF reporting
+* Multi-portfolio support
+* Enhanced weekly insights
