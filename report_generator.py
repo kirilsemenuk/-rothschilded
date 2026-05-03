@@ -153,3 +153,65 @@ def create_portfolio_chart(history: List[dict], cost_basis: float, output_path: 
     plt.close()
 
     return output_path, high_value, low_value
+
+def build_weekly_summary_message(metrics: dict, high_30d=None, low_30d=None) -> str:
+    top_impact_line = "—"
+    worst_impact_line = "—"
+
+    if metrics.get("top_impact"):
+        top_impact_line = (
+            f"{metrics['top_impact']['ticker']} "
+            f"{format_currency(metrics['top_impact']['weekly_pnl'])} "
+            f"({format_percent(metrics['top_impact']['weekly_pct'])})"
+        )
+
+    if metrics.get("worst_impact"):
+        worst_impact_line = (
+            f"{metrics['worst_impact']['ticker']} "
+            f"{format_currency(metrics['worst_impact']['weekly_pnl'])} "
+            f"({format_percent(metrics['worst_impact']['weekly_pct'])})"
+        )
+
+    winners_lines = [
+        f"• {get_dot_emoji(item['weekly_pct'])} {item['ticker']} {format_percent(item['weekly_pct'])}"
+        for item in metrics["top_gainers"]
+    ] or ["• אין"]
+
+    losers_lines = [
+        f"• {get_dot_emoji(item['weekly_pct'])} {item['ticker']} {format_percent(item['weekly_pct'])}"
+        for item in metrics["top_losers"]
+    ] or ["• אין"]
+
+    status = "שבוע חיובי" if metrics["weekly_change"] > 0 else "שבוע שלילי" if metrics["weekly_change"] < 0 else "ללא שינוי"
+    status_emoji = get_dot_emoji(metrics["weekly_change"])
+
+    lines = [
+        "📅 סיכום שבועי – Rothschild",
+        "",
+        f"{status_emoji} מצב: {status}",
+        f"💰 שווי תיק: {format_currency_plain(metrics['portfolio_value'])}",
+        f"🗓️ שינוי שבועי: {format_currency(metrics['weekly_change'])} ({format_percent(metrics['weekly_change_pct'])})",
+        "",
+        "──────────────",
+        "",
+        f"💵 תרומה חיובית מרכזית: {top_impact_line}",
+        f"📉 השפעה שלילית מרכזית: {worst_impact_line}",
+        "",
+        f"📊 רוחב שוק בתיק: {metrics['gainers_count']} עלו | {metrics['losers_count']} ירדו | {metrics['unchanged_count']} ללא שינוי",
+        "",
+        "🚀 מובילות השבוע:",
+        *winners_lines,
+        "",
+        "📉 חלשות השבוע:",
+        *losers_lines,
+    ]
+
+    if high_30d is not None or low_30d is not None:
+        lines.extend([
+            "",
+            "📍 טווח 30 יום:",
+            f"🔺 שיא: {format_currency_plain(high_30d) if high_30d is not None else '—'}",
+            f"🔻 שפל: {format_currency_plain(low_30d) if low_30d is not None else '—'}",
+        ])
+
+    return "\n".join(lines)

@@ -113,3 +113,61 @@ def build_daily_insight(metrics: dict) -> str:
         return f"{metrics['worst_impact']['ticker']} הכבידה יותר מכולן על ביצועי התיק היום."
 
     return "התיק נסגר כמעט ללא שינוי, בלי מניה דומיננטית במיוחד."
+
+
+def build_weekly_positions_snapshot(snapshot: list[dict], prices: dict) -> list[dict]:
+    weekly_snapshot = []
+
+    for item in snapshot:
+        ticker = item["ticker"]
+
+        if ticker not in prices:
+            continue
+
+        hist = prices[ticker]["hist"]
+
+        if len(hist) < 2:
+            continue
+
+        current_price = item["current_price"]
+        week_start_price = hist["Close"].iloc[0]
+
+        weekly_pnl = item["shares"] * (current_price - week_start_price)
+        weekly_pct = ((current_price - week_start_price) / week_start_price * 100) if week_start_price else 0.0
+
+        new_item = item.copy()
+        new_item["week_start_price"] = week_start_price
+        new_item["weekly_pnl"] = weekly_pnl
+        new_item["weekly_pct"] = weekly_pct
+
+        weekly_snapshot.append(new_item)
+
+    if not weekly_snapshot:
+        raise RuntimeError("No valid weekly positions")
+
+    return weekly_snapshot
+
+
+def calculate_weekly_metrics(weekly_snapshot: list[dict]) -> dict:
+    portfolio_value = sum(item["market_value"] for item in weekly_snapshot)
+    weekly_change = sum(item["weekly_pnl"] for item in weekly_snapshot)
+
+    week_start_value = portfolio_value - weekly_change
+    weekly_change_pct = (weekly_change / week_start_value * 100) if week_start_value else 0.0
+
+    gainers = [item for item in weekly_snapshot if item["weekly_pct"] > 0]
+    losers = [item for item in weekly_snapshot if item["weekly_pct"] < 0]
+    unchanged = [item for item in weekly_snapshot if abs(item["weekly_pct"]) < 1e-12]
+
+    return {
+        "portfolio_value": portfolio_value,
+        "weekly_change": weekly_change,
+        "weekly_change_pct": weekly_change_pct,
+        "gainers_count": len(gainers),
+        "losers_count": len(losers),
+        "unchanged_count": len(unchanged),
+        "top_gainers": sorted(gainers, key=lambda x: x["weekly_pct"], reverse=True)[:3],
+        "top_losers": sorted(losers, key=lambda x: x["weekly_pct"])[:3],
+        "top_impact": max(weekly_snapshot, key=lambda x: x["weekly_pnl"], default=None),
+        "worst_impact": min(weekly_snapshot, key=lambda x: x["weekly_pnl"], default=None),
+    }
