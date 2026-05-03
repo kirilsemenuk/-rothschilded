@@ -131,7 +131,7 @@ def build_weekly_positions_snapshot(snapshot: list[dict], prices: dict) -> list[
 
         current_price = item["current_price"]
         if len(hist) >= 7:
-            week_start_price = hist["Close"].iloc[-7]
+            week_start_price = hist["Close"].iloc[-5]
         else:
             week_start_price = hist["Close"].iloc[0]
 
