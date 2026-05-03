@@ -130,7 +130,10 @@ def build_weekly_positions_snapshot(snapshot: list[dict], prices: dict) -> list[
             continue
 
         current_price = item["current_price"]
-        week_start_price = hist["Close"].iloc[0]
+        if len(hist) >= 7:
+            week_start_price = hist["Close"].iloc[-7]
+        else:
+            week_start_price = hist["Close"].iloc[0]
 
         weekly_pnl = item["shares"] * (current_price - week_start_price)
         weekly_pct = ((current_price - week_start_price) / week_start_price * 100) if week_start_price else 0.0
