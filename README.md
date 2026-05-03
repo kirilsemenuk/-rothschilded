@@ -31,18 +31,13 @@ This project demonstrates real-world engineering skills relevant to system valid
 ## 🏗️ System Architecture
 
 ```
-Portfolio JSON
-      ↓
-Data Fetcher (APIs)
-      ↓
-Portfolio Service (Calculations)
-      ↓
-Report Generator (Charts + Summary)
-      ↓
-Telegram Client (Delivery)
-      ↓
-GitHub Actions (Automation)
-```
+## 🏗️ Architecture
+
+- **Data Layer** — Fetches market data via APIs  
+- **Processing Layer** — Calculates portfolio metrics (P&L, trends)  
+- **Reporting Layer** — Generates summaries and charts  
+- **Delivery Layer** — Sends reports via Telegram  
+- **Automation Layer** — Schedules execution using GitHub Actions  
 
 ---
 
@@ -127,3 +122,43 @@ The system runs automatically using GitHub Actions:
 * Advanced analytics (risk, volatility)
 * Multi-portfolio support
 * PDF / dashboard reporting
+
+
+---
+
+## 🔄 Execution Flow
+
+1. Load portfolio configuration  
+2. Fetch market data (prices + history)  
+3. Calculate daily / weekly metrics  
+4. Generate chart and summary  
+5. Send report via Telegram  
+6. Run automatically via GitHub Actions  
+
+---
+
+## 🧪 Validation & Reliability
+
+- Handles missing or incomplete market data  
+- Validates input portfolio structure  
+- Uses safe calculations to avoid runtime errors  
+- Separates logic into modular components for testability  
+
+---
+
+## 🔐 Security
+
+Sensitive data is managed using environment variables and GitHub Secrets:
+
+- No API keys or tokens are stored in the repository  
+- Portfolio data is injected securely during runtime  
+
+---
+
+## 🤖 AI-Assisted Development
+
+This project leverages AI tools (LLMs) to:
+
+- Accelerate development  
+- Improve code quality  
+- Assist in debugging and system design  
